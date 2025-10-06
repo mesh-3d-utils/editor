@@ -2,7 +2,7 @@ import { ReactNode } from "react";
 import { EditorControls, EditorControlsProps, Selectable, SelectionProvider, TransformInfoProvider } from "./tools/index.js";
 import { EditorUI, EditorUIProps } from "./ui/editor.js";
 import { OverlaysProvider } from "./ui/index.js";
-import { Canvas } from "@react-three/fiber";
+import { InteractiveCanvas } from "./tools/interactive.jsx";
 
 export interface EditableProps {
     scene?: ReactNode
@@ -31,9 +31,9 @@ export interface EditorProps extends EditableProps {
 export function Editor({ scene, controls, ui }: EditorProps) {
     return (
         <OverlaysProvider>
-            <Canvas>
+            <InteractiveCanvas>
                 <Editable scene={scene} controls={controls} />
-            </Canvas>
+            </InteractiveCanvas>
             <EditorUI {...ui} />
         </OverlaysProvider>
     )

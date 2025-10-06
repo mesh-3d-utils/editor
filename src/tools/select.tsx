@@ -1,15 +1,15 @@
 import { ObservableList } from "@code-essentials/utils"
-import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
+import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { Object3D } from "three"
 import { isDescendantOf, useObservableList } from "../utils.js"
 import { Toolbar } from "../ui/toolbar.js"
 import { Select } from "../ui/select.js"
-import { EventHandlers } from "@react-three/fiber"
+import { useThree } from "@react-three/fiber"
+import { useObjectInteractionEvent } from "./interactive.js"
 
 export interface SelectionInfo {
     readonly selection: ObservableList<Object3D>
     readonly selectableRoots: ObservableList<Object3D>
-    selectionMode: SelectionMode
 }
 
 const selectionInfoContext = createContext<SelectionInfo | undefined>(undefined)
@@ -63,14 +63,35 @@ export function Selectable({ children }: SelectableProps) {
         }
     }, [selectionInfo])
 
-    const onClick = useCallback<NonNullable<EventHandlers['onClick']>>(event => {
+    return (
+        <group ref={ref}>
+            {children}
+        </group>
+    )
+}
+
+export enum SelectionMode {
+    replace = 'replace',
+    add = 'add',
+    remove = 'remove',
+}
+
+export interface SelectToolProps {
+    mode: SelectionMode
+}
+
+export function SelectTool({ mode }: SelectToolProps) {
+    const selectionInfo = useSelectionInfo()
+    const scene = useThree(s => s.scene)
+
+    useObjectInteractionEvent(scene, 'onClick', event => {
         const {
             object,
         } = event
 
         if (object instanceof Object3D) {
             if (selectionInfo.selectableRoots.some(root => isDescendantOf(object, root))) {
-                switch (selectionInfo.selectionMode) {
+                switch (mode) {
                     case SelectionMode.replace:
                         selectionInfo.selection.splice(0, selectionInfo.selection.length)
                         selectionInfo.selection.push(object)
@@ -88,17 +109,7 @@ export function Selectable({ children }: SelectableProps) {
         }
     }, [selectionInfo])
 
-    return (
-        <group ref={ref} onClick={onClick}>
-            {children}
-        </group>
-    )
-}
-
-export enum SelectionMode {
-    replace = 'replace',
-    add = 'add',
-    remove = 'remove',
+    return null
 }
 
 export interface SelectControlsProps {
@@ -106,13 +117,10 @@ export interface SelectControlsProps {
 
 export function SelectControls({ }: SelectControlsProps) {
     const [mode, setMode] = useState<SelectionMode>(SelectionMode.replace)
-    const selectionInfo = useSelectionInfo()
-    useEffect(() => {
-        selectionInfo.selectionMode = mode
-    }, [mode])
-
+    
     return (
         <>
+            <SelectTool mode={mode} />
             <Toolbar>
                 <Select
                     value={mode}
