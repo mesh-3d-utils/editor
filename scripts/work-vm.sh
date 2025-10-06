@@ -115,10 +115,50 @@ ensure_project() {
     fi
 }
 
+# Function to check for SSH keys and validate them
+check_ssh_keys() {
+    local pub_key_path=""
+
+    # Check for common public key files
+    if [ -f "$HOME/.ssh/id_rsa.pub" ]; then
+        pub_key_path="$HOME/.ssh/id_rsa.pub"
+    elif [ -f "$HOME/.ssh/id_ed25519.pub" ]; then
+        pub_key_path="$HOME/.ssh/id_ed25519.pub"
+    elif [ -f "$HOME/.ssh/id_ecdsa.pub" ]; then
+        pub_key_path="$HOME/.ssh/id_ecdsa.pub"
+    else
+        log_error "No SSH public key found in ~/.ssh/"
+        log_error "Please generate an SSH key pair first:"
+        log_error "  ssh-keygen -t ed25519 -C 'your-email@example.com' -f ~/.ssh/id_ed25519"
+        log_error "  # or for RSA: ssh-keygen -t rsa -b 4096 -C 'your-email@example.com' -f ~/.ssh/id_rsa"
+        log_error "Then run this script again."
+        exit 1
+    fi
+
+    # Validate the public key file is readable
+    if ! ssh-keygen -l -f "$pub_key_path" >/dev/null 2>&1; then
+        log_error "Invalid SSH public key file: $pub_key_path"
+        log_error "Please check the file or generate a new key pair."
+        exit 1
+    fi
+
+    log_info "Found valid SSH public key: $pub_key_path"
+}
+
+# Function 1: Create and start a new VM from scratch
 # Function 1: Create and start a new VM from scratch
 create_vm() {
     log_info "Creating new VM for development environment..."
     check_gcloud
+    check_ssh_keys
+
+    # Read the public key content
+    local pub_key_path="$HOME/.ssh/id_rsa.pub"
+    if [ ! -f "$pub_key_path" ]; then
+        pub_key_path="$HOME/.ssh/id_ed25519.pub"
+    fi
+    local pub_key_content
+    pub_key_content=$(cat "$pub_key_path")
 
     # Create firewall rule to allow necessary ports
     log_info "Creating firewall rule for development ports..."
@@ -133,7 +173,7 @@ create_vm() {
 
     # Create a temporary startup script file (POSIX shell compatible)
     STARTUP_SCRIPT=$(mktemp)
-    cat > "$STARTUP_SCRIPT" << 'EOF'
+    cat > "$STARTUP_SCRIPT" << EOF
 #!/bin/bash
 # Install Node.js, Docker, and development tools
 curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
@@ -142,15 +182,18 @@ sudo apt-get install -y nodejs build-essential git curl wget
 # Install Docker
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
-sudo usermod -aG docker $USER
 
 # Install VS Code Server prerequisites
 sudo apt-get install -y net-tools
 
 # Create development user and setup directories
-sudo useradd -m -s /bin/bash devuser || true
-sudo mkdir -p /home/devuser/workspace
-sudo chown -R devuser:devuser /home/devuser/workspace
+sudo useradd -m -s /bin/bash $SSH_USER || true
+sudo mkdir -p /home/$SSH_USER/workspace
+sudo chown -R $SSH_USER:$SSH_USER /home/$SSH_USER/workspace
+
+# Set up SSH key for the user (optional but recommended)
+sudo mkdir -p /home/$SSH_USER/.ssh
+sudo chmod 700 /home/$SSH_USER/.ssh
 
 echo "VM setup complete!"
 EOF
@@ -165,6 +208,7 @@ EOF
         --boot-disk-size=50GB \
         --boot-disk-type=pd-standard \
         --boot-disk-device-name="$VM_NAME" \
+        --metadata "ssh-keys=${SSH_USER}:${pub_key_content}" \
         --metadata-from-file startup-script="$STARTUP_SCRIPT" \
         --project "$PROJECT_ID"
 
