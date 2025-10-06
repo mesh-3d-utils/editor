@@ -1,0 +1,36 @@
+{
+  "name": "@mesh-3d-utils/editor",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "prebuild": "pnpm run clean",
+    "build": "tsc",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@code-essentials/utils": "catalog:",
+    "@mesh-3d-utils/core": "workspace:",
+    "@react-three/drei": "catalog:",
+    "@react-three/fiber": "catalog:",
+    "@emotion/react": "catalog:",
+    "@emotion/styled": "catalog:",
+    "@mui/icons-material": "catalog:",
+    "@mui/material": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "three": "catalog:",
+    "three-stdlib": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@types/three": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "@vitejs/plugin-react": "catalog:"
+  }
+}
