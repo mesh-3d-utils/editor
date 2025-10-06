@@ -4,22 +4,7 @@ import { Object3D } from "three"
 import { isDescendantOf, useObservableList } from "../utils.js"
 import { Toolbar } from "../ui/toolbar.js"
 import { Select } from "../ui/select.js"
-import { ThreeEvent, EventHandlers  } from "@react-three/fiber"
-
-export interface InteractiveObject3D {
-    listeners?: {
-        [K in keyof EventHandlers]?: EventHandlers[K][]
-    }
-}
-
-export function useInteractiveEvent<EventName extends keyof EventHandlers>(obj: InteractiveObject3D, event: EventName, listener: EventHandlers[EventName], deps?: any[]) {
-    useEffect(() => {
-        const listeners = obj.listeners ??= {}
-        const handlers = listeners[event] ??= []
-        handlers.push(listener)
-        handlers.splice(handlers.indexOf(listener), 1)
-    }, [obj, listener, ...(deps ?? [])])
-}
+import { EventHandlers } from "@react-three/fiber"
 
 export interface SelectionInfo {
     readonly selection: ObservableList<Object3D>
@@ -78,7 +63,7 @@ export function Selectable({ children }: SelectableProps) {
         }
     }, [selectionInfo])
 
-    const onClick = useCallback((event: ThreeEvent<'click'>) => {
+    const onClick = useCallback<NonNullable<EventHandlers['onClick']>>(event => {
         const {
             object,
         } = event
@@ -116,80 +101,6 @@ export enum SelectionMode {
     remove = 'remove',
 }
 
-// export interface SelectToolProps {
-//     mode: SelectionMode
-// }
-
-// export function SelectTool({ mode }: SelectToolProps) {
-//     /**
-//      * locate parent three obj this tool was mounted in
-//      * 
-//      * when scene background is clicked, clear selection
-//      * 
-//      * when object is clicked, add to selection
-//      */
-
-//     // obj_ref used to find scene background
-//     const obj_ref = useRef<Object3D|null>(null)
-//     const selection = useSelection()
-//     const selectionInfo = useSelectionInfo()
-
-//     useItemEffect(selectionInfo.selectableRoots, root => {
-//         const handleObjectClick = (event: ThreeEvent) => {
-//             const object = event.target
-
-//             if (object instanceof Object3D) {
-//                 if (selectionInfo.selectableRoots.some(root => isDescendantOf(object, root))) {
-//                     switch (mode) {
-//                         case SelectionMode.replace:
-//                             selection.splice(0, selection.length)
-//                             selection.push(object)
-//                             break;
-//                         case SelectionMode.add:
-//                             selection.push(object)
-//                             break;
-//                         case SelectionMode.remove:
-//                             const index = selection.indexOf(object)
-//                             if (index !== -1)
-//                                 selection.splice(index, 1)
-//                             break;
-//                     }
-//                 }
-//             }
-//         }
-
-//         //TODO: click does not exist on root object3D
-//         root.addEventListener('click', handleObjectClick)
-//         return () => {
-//             root.removeEventListener('click', handleObjectClick)
-//         }
-//     }, [selectionInfo])
-
-//     useEffect(() => {
-//         const obj = obj_ref.current
-//         if(!obj)
-//             return
-
-//         const handleBackgroundClick = () => {
-//             selection.splice(0, selection.length)
-//         }
-
-//         //? how do you find scene root to intercept click event?
-//         const scene_background = obj.parent
-//         if (!scene_background)
-//             return
-
-//         scene_background.addEventListener('click', handleBackgroundClick)
-//         return () => {
-//             scene_background.removeEventListener('click', handleBackgroundClick)
-//         }
-//     }, [obj_ref])
-
-//     return (
-//         <object3D ref={obj_ref} />
-//     )
-// }
-
 export interface SelectControlsProps {
 }
 
@@ -202,7 +113,6 @@ export function SelectControls({ }: SelectControlsProps) {
 
     return (
         <>
-            {/* <SelectTool mode={mode} /> */}
             <Toolbar>
                 <Select
                     value={mode}
