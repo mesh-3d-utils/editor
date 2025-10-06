@@ -71,6 +71,19 @@ check_gcloud() {
     ensure_project
 }
 
+wait_for_vm_ready() {
+    log_info "Waiting for it to reach RUNNING status..."
+
+    # Loop until the VM status is RUNNING
+    while [[ "$(gcloud compute instances describe "$VM_NAME" \
+                --zone="$ZONE" \
+                --project="$PROJECT_ID" \
+                --format='value(status)' 2>/dev/null)" != "RUNNING" ]]; do
+        log_info "VM status is not yet RUNNING. Waiting 10 seconds..."
+        sleep 10
+    done
+}
+
 # Ensure the correct Google Cloud project is active
 ensure_project() {
     local current_project
@@ -157,10 +170,9 @@ EOF
 
     # Clean up temporary file
     rm -f "$STARTUP_SCRIPT"
-
-    log_info "VM is being created. Waiting for it to be ready..."
-    gcloud compute instances wait-for-ready "$VM_NAME" --zone="$ZONE" --project "$PROJECT_ID"
-
+    
+    log_info "VM is being created."
+    wait_for_vm_ready
     show_vm_info
 }
 
@@ -179,9 +191,8 @@ start_vm() {
     # Start the VM
     gcloud compute instances start "$VM_NAME" --zone="$ZONE" --project "$PROJECT_ID"
 
-    log_info "VM is starting. Waiting for it to be ready..."
-    gcloud compute instances wait-for-ready "$VM_NAME" --zone="$ZONE" --project "$PROJECT_ID"
-
+    log_info "VM is starting."
+    wait_for_vm_ready
     show_vm_info
 }
 
