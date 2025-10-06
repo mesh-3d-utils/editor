@@ -75,14 +75,19 @@ export interface MultiSelectProps {
     items: SelectMenuItem[]
     value?: string[]
     onChange?: (value: string[]) => void
+
+    /**
+     * if false (default), clicking one item clears selection
+     */
+    multiselect?: boolean
 }
 
-export const MultiSelect = memo(({ items, value, onChange }: MultiSelectProps) => {
+export const MultiSelect = memo(({ items, value, onChange, multiselect = false }: MultiSelectProps) => {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
     const handleChange = useCallback(
-        (event: React.MouseEvent<HTMLElement>, newValue: string[]) => {
+        (_event: React.MouseEvent<HTMLElement>, newValue: string[]) => {
             onChange?.(newValue);
         },
         [onChange]
@@ -93,6 +98,7 @@ export const MultiSelect = memo(({ items, value, onChange }: MultiSelectProps) =
             value={value ?? []}
             onChange={handleChange}
             aria-label="multi select"
+            exclusive={multiselect === false}
         >
             {items.map((item) => (
                 <ToggleButton value={item.value} key={item.value} aria-label={item.text}>

@@ -20,9 +20,8 @@ export function useObservableList<T>(list: ObservableList<T>) {
     return list
 }
 
-export function useItemEffect<T>(list: ObservableList<T>, callback: (item: T) => (() => void)) {
+export function useItemEffect<T>(list: ObservableList<T>, callback: (item: T) => (() => void), deps?: any[]) {
     useEffect(() => {
-        list.forEach(callback)
         const removal = new Map<T, () => void>()
         const onInsert = (item: T) => {
             const remove = callback(item)
@@ -36,11 +35,14 @@ export function useItemEffect<T>(list: ObservableList<T>, callback: (item: T) =>
         }
         list.on("insert", onInsert)
         list.on("delete", onDelete)
+        for(const item of list)
+            onInsert(item)
+
         return () => {
             list.off("insert", onInsert)
             list.off("delete", onDelete)
         }
-    }, [list, callback])
+    }, [list, callback, ...(deps || [])])
 }
 
 export function isDescendantOf(object: Object3D, root: Object3D | null): boolean {
