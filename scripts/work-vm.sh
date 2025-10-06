@@ -176,8 +176,21 @@ create_vm() {
     cat > "$STARTUP_SCRIPT" << EOF
 #!/bin/bash
 # Install Node.js, Docker, and development tools
-curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-sudo apt-get install -y nodejs build-essential git curl wget
+sudo apt-get install -y build-essential git curl wget
+
+# config git user
+sudo git config --global user.name "$GIT_USER_NAME"
+sudo git config --global user.email "$GIT_CONFIG_EMAIL"
+
+# install nvm, pnpm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+# set nvm to be available in the current session
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+nvm install node
+
+corepack enable pnpm
 
 # Install Docker
 curl -fsSL https://get.docker.com -o get-docker.sh
