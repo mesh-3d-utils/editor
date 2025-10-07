@@ -1,5 +1,6 @@
 export * from './interactive.js'
 export * from './select.js'
 export * from './transform.js'
+export * from './orbit.js'
 export * from './geometry-edit.js'
 export * from './editor.js'

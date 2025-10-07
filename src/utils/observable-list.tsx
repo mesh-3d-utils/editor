@@ -1,6 +1,5 @@
 import { ObservableList } from "@code-essentials/utils"
-import { useEffect, useState } from "react"
-import { Object3D } from "three"
+import { EffectCallback, useEffect, useState } from "react"
 
 export function useObservableList<T>(list: ObservableList<T>) {
     const [, forceUpdate] = useState({})
@@ -20,12 +19,13 @@ export function useObservableList<T>(list: ObservableList<T>) {
     return list
 }
 
-export function useItemEffect<T>(list: ObservableList<T>, callback: (item: T) => (() => void), deps?: any[]) {
+export function useItemEffect<T>(list: ObservableList<T>, callback: (item: T) => ReturnType<EffectCallback>, deps?: any[]) {
     useEffect(() => {
         const removal = new Map<T, () => void>()
         const onInsert = (item: T) => {
             const remove = callback(item)
-            removal.set(item, remove)
+            if (remove)
+                removal.set(item, remove)
         }
         const onDelete = (item: T) => {
             const remove = removal.get(item)
@@ -43,17 +43,4 @@ export function useItemEffect<T>(list: ObservableList<T>, callback: (item: T) =>
             list.off("delete", onDelete)
         }
     }, [list, callback, ...(deps || [])])
-}
-
-export function isDescendantOf(object: Object3D, root: Object3D | null): boolean {
-    if (!root)
-        return false
-    
-    if (object === root)
-        return true
-
-    if (object.parent)
-        return isDescendantOf(object.parent, root)
-    
-    return false
 }

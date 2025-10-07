@@ -1,15 +1,15 @@
 import { GeometryMeshObject3DHelper } from '@mesh-3d-utils/core';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useIsSelected, useSelection } from './select.js';
 import * as THREE from 'three';
 import { Toolbar } from '../ui/toolbar.js';
 import { MultiSelect } from '../ui/select.js';
 import { Parented } from '../utils/parented.js';
 
-export enum GeometryEditMode {
-    vertex = 0x1,
-    edge = 0x2,
-    face = 0x4,
+export interface GeometryEditMode {
+    vertex: boolean
+    edge: boolean
+    face: boolean
 }
 
 export interface GeometryEditToolProps {
@@ -36,39 +36,46 @@ export interface GeometryEditControlsProps {
 }
 
 export function GeometryEditControls({ }: GeometryEditControlsProps) {
-    const [mode, setMode] = useState<GeometryEditMode>(GeometryEditMode.vertex)
+    const [mode, setMode] = useState<GeometryEditMode>({
+        vertex: true,
+        edge: false,
+        face: false,
+    })
 
     const setModeFromValue = useCallback((value: string[]) => {
-        setMode(
-            (value.includes("vertex") ? GeometryEditMode.vertex : 0) |
-            (value.includes("edge") ? GeometryEditMode.edge : 0) |
-            (value.includes("face") ? GeometryEditMode.face : 0)
-        )
+        setMode({
+            vertex: value.includes("vertex"),
+            edge: value.includes("edge"),
+            face: value.includes("face"),
+        })
     }, [setMode])
 
     const valuesForMode = useMemo(() => {
         const values: string[] = []
-        if (mode & GeometryEditMode.vertex)
+        if (mode.vertex)
             values.push("vertex")
-        if (mode & GeometryEditMode.edge)
+        if (mode.edge)
             values.push("edge")
-        if (mode & GeometryEditMode.face)
+        if (mode.face)
             values.push("face")
         return values
     }, [mode])
 
     return (
-        <Toolbar>
-            <MultiSelect
-                items={[
-                    { value: "vertex", text: "Vertex", icon: "V" },
-                    { value: "edge", text: "Edge", icon: "E" },
-                    { value: "face", text: "Face", icon: "F" },
-                ]}
-                value={valuesForMode}
-                onChange={setModeFromValue}
-            />
-        </Toolbar>
+        <>
+            <GeometryEditTool mode={mode} />
+            <Toolbar>
+                <MultiSelect
+                    items={[
+                        { value: "vertex", text: "Vertex", icon: "V" },
+                        { value: "edge", text: "Edge", icon: "E" },
+                        { value: "face", text: "Face", icon: "F" },
+                    ]}
+                    value={valuesForMode}
+                    onChange={setModeFromValue}
+                />
+            </Toolbar>
+        </>
     )
 }
 
@@ -82,9 +89,9 @@ export function GeometryEditComponent({ mode, object }: GeometryEditComponentPro
 
     return (
         <Parented parent={helper.obj}>
-            {mode & GeometryEditMode.vertex && <GeometryEditVertices helper={helper} />}
-            {mode & GeometryEditMode.edge && <GeometryEditEdges helper={helper} />}
-            {mode & GeometryEditMode.face && <GeometryEditFaces helper={helper} />}
+            {mode.vertex && <GeometryEditVertices helper={helper} />}
+            {mode.edge && <GeometryEditEdges helper={helper} />}
+            {mode.face && <GeometryEditFaces helper={helper} />}
         </Parented>
     )
 }

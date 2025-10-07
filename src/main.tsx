@@ -1,23 +1,29 @@
 import { createRoot } from 'react-dom/client'
 import { Editor } from './editor.js'
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material'
+import { useRef } from 'react'
+import { Object3D } from 'three'
+import { Parented } from './utils/parented.js'
 
 function Scene() {
+    const box = useRef<Object3D|null>(null)
+
     return (
         <>
             <ambientLight intensity={0.5} />
             <pointLight position={[10, 10, 10]} />
 
-            <mesh position={[0, 0, 0]}>
+            <mesh name='box1' ref={box} position={[0, 0, 0]}>
                 <boxGeometry args={[2, 2, 2]} />
-                <meshStandardMaterial color="royalblue" />
+                <meshStandardMaterial color="blue" />
             </mesh>
 
-            
-            <mesh position={[4, 0, 0]}>
-                <sphereGeometry args={[1, 32, 32]} />
-                <meshStandardMaterial color="hotpink" />
-            </mesh>
+            <Parented parent={box}>
+                <mesh name='sphere1' position={[4, 0, 0]}>
+                    <sphereGeometry args={[1, 32, 32]} />
+                    <meshStandardMaterial color="green" />
+                </mesh>
+            </Parented>
         </>
     )
 }

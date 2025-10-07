@@ -1,7 +1,6 @@
 import { ObservableList } from "@code-essentials/utils"
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { Mesh, Object3D, Color } from "three"
-import { isDescendantOf, useObservableList } from "../utils.js"
 import { Toolbar } from "../ui/toolbar.js"
 import { Select } from "../ui/select.js"
 import { useThree } from "@react-three/fiber"
@@ -9,7 +8,8 @@ import { useObjectInteractionEvent } from "./interactive.js"
 import { Outline, OutlineProps } from '@react-three/postprocessing';
 import { memo } from "react"
 import { PostProcessingEffect } from "../utils/postprocessing.js"
-import { Parented } from "../utils/parented.js"
+import { isDescendantOf, Parented } from "../utils/parented.js"
+import { useObservableList } from "../utils/observable-list.js"
 
 export interface SelectionInfo {
     readonly selection: ObservableList<Object3D>

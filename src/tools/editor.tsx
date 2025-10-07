@@ -1,27 +1,27 @@
-import { OrbitControls, OrbitControlsProps } from "@react-three/drei"
+import { OrbitControls, OrbitControlsProps } from "./orbit.js"
 import { SelectControls, SelectControlsProps } from "./select.js"
 import { EditorTransformControls, EditorTransformControlsProps } from "./transform.js"
 import { GeometryEditControls, GeometryEditControlsProps } from "./geometry-edit.js"
 
 export interface EditorControlsProps {
-    orbit?: boolean | OrbitControlsProps
+    orbit?: OrbitControlsProps
     select?: SelectControlsProps
     transform?: EditorTransformControlsProps
     geometryEdit?: GeometryEditControlsProps
 }
 
 export function EditorControls({
-        orbit = true,
+        orbit = {},
         select = {},
         transform = {},
         geometryEdit = {},
     }: EditorControlsProps) {
     return (
         <>
-            {orbit === true ? <OrbitControls enablePan enableZoom enableRotate /> : <OrbitControls {...orbit} />}
+            <OrbitControls {...orbit} />
             <SelectControls {...select} />
-            {/* <EditorTransformControls {...transform} /> */}
-            {/* <GeometryEditControls {...geometryEdit} /> */}
+            <EditorTransformControls {...transform} />
+            <GeometryEditControls {...geometryEdit} />
         </>
     )
 }

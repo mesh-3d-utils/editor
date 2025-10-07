@@ -1,14 +1,18 @@
 import { TransformControls, TransformControlsProps } from '@react-three/drei'
 import { useSelection } from './select.js'
 import { Euler, Matrix4, Object3D, Quaternion, Vector3 } from 'three'
-import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, DependencyList, memo, PropsWithChildren, RefObject, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { MultiSelect, Select } from '../ui/select.js'
 import { Toolbar } from '../ui/toolbar.js'
 import { Parented } from '../utils/parented.js'
+import { useItemEffect } from '../utils/observable-list.js'
+import { useThree } from '@react-three/fiber'
 
 export class TransformInfo {
     readonly listeners = {
-        transform: [] as ((transform: Matrix4) => void)[]
+        start: [] as ((object: Object3D) => void)[],
+        complete: [] as ((transform: Matrix4, object: Object3D) => void)[],
+        transform: [] as ((transform: Matrix4, object: Object3D) => void)[]
     }
 }
 
@@ -28,6 +32,48 @@ export function useTransformInfo() {
     if (!transformInfo)
         throw new Error('useTransformInfo must be used within a TransformInfoProvider')
     return transformInfo
+}
+
+export function useTransformListener(callback: (transform: Matrix4) => void, deps?: DependencyList) {
+    const transformInfo = useTransformInfo()
+    useEffect(() => {
+        transformInfo.listeners.transform.push(callback)
+        return () => {
+            const index = transformInfo.listeners.transform.indexOf(callback)
+            if (index !== -1)
+                transformInfo.listeners.transform.splice(index, 1)
+        }
+    }, [transformInfo, callback, ...(deps ?? [])])
+}
+
+export function useIsTransforming() {
+    const transformInfo = useTransformInfo()
+    const [isTransforming, setIsTransforming] = useState(false)
+    useEffect(() => {
+        const start = () => setIsTransforming(true)
+        const complete = () => setIsTransforming(false)
+        transformInfo.listeners.start.push(start)
+        transformInfo.listeners.complete.push(complete)
+        return () => {
+            const index1 = transformInfo.listeners.start.indexOf(start)
+            if (index1 !== -1) transformInfo.listeners.start.splice(index1, 1)
+            const index2 = transformInfo.listeners.complete.indexOf(complete)
+            if (index2 !== -1) transformInfo.listeners.complete.splice(index2, 1)
+        }
+    }, [transformInfo])
+    return isTransforming
+}
+
+export function useOnTransform(callback: (transform: Matrix4, obj: Object3D) => void, deps?: DependencyList) {
+    const transformInfo = useTransformInfo()
+    useEffect(() => {
+        transformInfo.listeners.transform.push(callback)
+        return () => {
+            const index = transformInfo.listeners.transform.indexOf(callback)
+            if (index !== -1)
+                transformInfo.listeners.transform.splice(index, 1)
+        }
+    }, [transformInfo, callback, ...(deps ?? [])])
 }
 
 export enum TransformCoordinateSystem {
@@ -76,44 +122,7 @@ export function TransformTool({
 
     switch(transformOrigin) {
         case TransformOrigin.average:
-            const average = useRef<Object3D>(null!)
-            
-            useEffect(() => {
-                function computeAverage() {
-                    const average_pos = new Vector3()
-                    selection.forEach(object => average_pos.add(object.getWorldPosition(new Vector3())))
-                    average_pos.divideScalar(selection.length)
-                    
-                    //TODO: is this correct way to average rotations?
-                    const average_euler = new Euler()
-                    selection.forEach(object => {
-                        const object_rot = new Euler().setFromQuaternion(object.getWorldQuaternion(new Quaternion()))
-                        average_euler.x += object_rot.x
-                        average_euler.y += object_rot.y
-                        average_euler.z += object_rot.z
-                    })
-                    average_euler.x /= selection.length
-                    average_euler.y /= selection.length
-                    average_euler.z /= selection.length
-                    
-                    const average_scale = new Vector3()
-                    selection.forEach(object => average_scale.add(object.getWorldScale(new Vector3())))
-                    average_scale.divideScalar(selection.length)
-                    
-                    average.current.position.copy(average_pos)
-                    average.current.setRotationFromEuler(average_euler)
-                    average.current.scale.copy(average_scale)
-                }
-
-                computeAverage()
-            }, [selection])
-
-            return (
-                <group ref={average}>
-                    <TransformComponent object={average.current} {...transformComponentProps} />
-                </group>
-            )
-        
+            return <AverageTransformTool {...transformComponentProps} />
         case TransformOrigin.each:
             return selection.map(object => <TransformComponent key={object.uuid} object={object} {...transformComponentProps} />)
         case TransformOrigin.first:
@@ -122,6 +131,63 @@ export function TransformTool({
             return <TransformComponent object={selection[selection.length - 1]} {...transformComponentProps} />
     }
 }
+
+const AverageTransformTool = memo((props: Omit<TransformComponentProps, 'object'>) => {
+    const selection = useSelection()
+
+    const average_ref = useRef<Object3D | null>(null)
+    const [average_resolved, average_setResolved] = useState<Object3D | null>(average_ref.current)
+    useEffect(() => {
+        const p = average_ref.current
+        if (p)
+            average_setResolved(p)
+        else {
+            // Wait until the ref is assigned
+            const id = requestAnimationFrame(() => {
+                if (average_ref.current) average_setResolved(average_ref.current)
+            })
+            return () => cancelAnimationFrame(id)
+        }
+    }, [average_ref])
+
+    const updateAverage = useCallback(() => {
+        const average = average_ref.current
+        if (!average || selection.length === 0)
+            return
+
+        const average_pos = new Vector3()
+        selection.forEach(object => average_pos.add(object.getWorldPosition(new Vector3())))
+        average_pos.divideScalar(selection.length)
+        
+        const average_quat = new Quaternion(0, 0, 0, 0)
+        selection.forEach(object => {
+            const objQuat = object.getWorldQuaternion(new Quaternion())
+            average_quat.x += objQuat.x
+            average_quat.y += objQuat.y
+            average_quat.z += objQuat.z
+            average_quat.w += objQuat.w
+        })
+        average_quat.normalize()
+        
+        const average_scale = new Vector3()
+        selection.forEach(object => average_scale.add(object.getWorldScale(new Vector3())))
+        average_scale.divideScalar(selection.length)
+        
+        average.position.copy(average_pos)
+        average.quaternion.copy(average_quat)
+        average.scale.copy(average_scale)
+    }, [selection])
+
+    useTransformListener(updateAverage)
+    useItemEffect(selection, updateAverage)
+    useLayoutEffect(updateAverage)
+
+    return (
+        <group ref={average_ref}>
+            {average_resolved && <TransformComponent object={average_resolved} {...props} />}
+        </group>
+    )
+})
 
 export interface EditorTransformControlsProps {
 }
@@ -231,7 +297,7 @@ export function EditorTransformControls({ }: EditorTransformControlsProps) {
 }
 
 interface TransformComponentProps {
-    object?: Object3D | null
+    object?: Object3D | RefObject<Object3D | null> | null
 
     coordinateSystem: TransformCoordinateSystem
     transformType: Readonly<TransformType>
@@ -241,11 +307,78 @@ function TransformComponent({ object, coordinateSystem, transformType }: Transfo
     const transformInfo = useTransformInfo()
 
     // objects are ordered: "object" > transformedObj > TransformControls
-    const transformedObj = useRef<Object3D>(null!)
+    const transformedObj_ref = useRef<Object3D>(null!)
+    const [transformedObj_resolved, transformedObj_setResolved] = useState<Object3D | null>(transformedObj_ref.current)
+    useEffect(() => {
+        const p = transformedObj_ref.current
+        if (p)
+            transformedObj_setResolved(p)
+        else {
+            // Wait until the ref is assigned
+            const id = requestAnimationFrame(() => {
+                if (transformedObj_ref.current) transformedObj_setResolved(transformedObj_ref.current)
+            })
+            return () => cancelAnimationFrame(id)
+        }
+    }, [transformedObj_ref])
+
+    const startTransform = useRef<Matrix4 | null>(null)
+
+    const onStart = useCallback(() => {
+        const obj = object ?
+            'current' in object ?
+                object.current :
+                object :
+            null
+        
+        if (!obj)
+            throw new Error('object is undefined')
+        
+        startTransform.current = obj[
+            coordinateSystem === TransformCoordinateSystem.local ? 'matrix' :
+            coordinateSystem === TransformCoordinateSystem.global ? 'matrixWorld' :
+                    'matrixWorld'].clone()
+        
+        transformInfo.listeners.start.forEach(listener => listener(obj))
+    }, [object, transformInfo])
+
+    const onComplete = useCallback(() => {
+        const obj = object ?
+            'current' in object ?
+                object.current :
+                object :
+            null
+        
+        if (!obj)
+            throw new Error('object is undefined')
+        if (!startTransform.current)
+            throw new Error('startTransform is undefined')
+
+        const endTransform = obj[
+            coordinateSystem === TransformCoordinateSystem.local ? 'matrix' :
+            coordinateSystem === TransformCoordinateSystem.global ? 'matrixWorld' :
+            'matrixWorld'
+        ].clone()
+        
+        const deltaTransform = endTransform.invert().multiply(startTransform.current)
+        startTransform.current = null
+
+        transformInfo.listeners.complete.forEach(listener => listener(deltaTransform, obj))
+    }, [object, transformInfo])
 
     const onTransform = useCallback(() => {
-        if (!object)
+        const obj = object ?
+            'current' in object ?
+                object.current :
+                object :
+            null
+        
+        if (!obj)
             throw new Error('object is undefined')
+        
+        const transformObj = transformedObj_ref.current
+        if (!transformObj)
+            throw new Error('transformObj_resolved is undefined')
 
         // discern delta transform from previous onTransform() call
         // apply inverse delta transform to the transformedObj
@@ -257,48 +390,97 @@ function TransformComponent({ object, coordinateSystem, transformType }: Transfo
 
         // transformedObj is identity transform in local coordinates
         // any difference from this is the delta transform
-        const deltaTransform = transformedObj.current.matrix
+        let deltaTransform: Matrix4
+        switch(coordinateSystem) {
+            case TransformCoordinateSystem.local:
+                deltaTransform = transformObj.matrix
+                break
 
-        transformedObj.current.applyMatrix4(deltaTransform.clone().invert())
+            case TransformCoordinateSystem.global:
+                // extract only 3x3 rotation/scale part of matrixWorld to transform the deltaTransform into world coordinates
+                deltaTransform = transformObj.matrix.clone().multiply(obj.matrixWorld.clone().setPosition(new Vector3()))
+                break
+        }
+
+        // transformObj.applyMatrix4(deltaTransform.clone().invert())
+        const d_position = new Vector3()
+        const d_quaternion = new Quaternion()
+        const d_scale = new Vector3()
+        deltaTransform.decompose(d_position, d_quaternion, d_scale)
+        const d_rotation = new Euler().setFromQuaternion(d_quaternion)
+        const precision = 3
+        // console.log(`onTransform ` +
+        //     `position: ${d_position.x.toFixed(precision)}, ${d_position.y.toFixed(precision)}, ${d_position.z.toFixed(precision)}, ` +
+        //     `rotation: ${d_rotation.x.toFixed(precision)}, ${d_rotation.y.toFixed(precision)}, ${d_rotation.z.toFixed(precision)}, ` +
+        //     `scale: ${d_scale.x.toFixed(precision)}, ${d_scale.y.toFixed(precision)}, ${d_scale.z.toFixed(precision)}`)
+        
+        transformObj.matrix.identity()
+        transformObj.updateMatrix()
+        
+        for (const listener of transformInfo.listeners.transform)
+            listener(deltaTransform, obj)
+    }, [transformInfo, object])
+
+    // in 'each' transform mode,
+    useOnTransform(deltaTransform => {
+        const obj = object ?
+            'current' in object ?
+                object.current :
+                object :
+            null
+        
+        if (!obj)
+            throw new Error('object is undefined')
         
         switch (coordinateSystem) {
             case TransformCoordinateSystem.local:
+                obj.applyMatrix4(deltaTransform)
                 break
-            
             case TransformCoordinateSystem.global:
-                // apply inverse of object's world transform to deltaTransform
-                const localToWorld = object.matrixWorld.clone().invert()
-                // remove world translation from localToWorld, keep orientation and scale
-                localToWorld.setPosition(new Vector3())
-                deltaTransform.multiply(localToWorld)
+                //TODO: convert deltaTransform to local coordinates
+                // extract only 3x3 rotation/scale part of matrixWorld
+                const localTransform = deltaTransform.clone().premultiply(
+                    obj.matrixWorld.clone()
+                        .setPosition(new Vector3())
+                        .invert()
+                )
+
+                obj.applyMatrix4(localTransform)
                 break
         }
-        
-        for (const listener of transformInfo.listeners.transform)
-            listener(deltaTransform)
-    }, [transformInfo, object])
+    }, [object, coordinateSystem])
 
     const space: TransformControlsProps['space'] = coordinateSystem === TransformCoordinateSystem.global ? 'world' : 'local'
+    const scene = useThree(s => s.scene)
 
     return (
-        <Parented parent={object}>
-            <object3D ref={transformedObj}>
-                {transformType.translate && <TransformControls
-                    object={transformedObj}
+        <>
+            <Parented parent={object}>
+                <object3D ref={transformedObj_ref} name='transformedObj' />
+            </Parented>
+            <Parented parent={scene}>
+                {transformType.translate && transformedObj_resolved && <TransformControls
+                    object={transformedObj_resolved}
                     mode='translate'
                     space={space}
+                    onMouseDown={onStart}
+                    onMouseUp={onComplete}
                     onChange={onTransform} />}
-                {transformType.rotate && <TransformControls
-                    object={transformedObj}
+                {transformType.rotate && transformedObj_resolved && <TransformControls
+                    object={transformedObj_resolved}
                     mode='rotate'
                     space={space}
+                    onMouseDown={onStart}
+                    onMouseUp={onComplete}
                     onChange={onTransform} />}
-                {transformType.scale && <TransformControls
-                    object={transformedObj}
+                {transformType.scale && transformedObj_resolved && <TransformControls
+                    object={transformedObj_resolved}
                     mode='scale'
                     space={space}
+                    onMouseDown={onStart}
+                    onMouseUp={onComplete}
                     onChange={onTransform} />}
-            </object3D>
-        </Parented>
+            </Parented>
+        </>
     )
 }
