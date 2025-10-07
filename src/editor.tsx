@@ -3,6 +3,7 @@ import { EditorControls, EditorControlsProps, Selectable, SelectionProvider, Tra
 import { EditorUI, EditorUIProps } from "./ui/editor.js";
 import { OverlaysProvider } from "./ui/index.js";
 import { InteractiveCanvas } from "./tools/interactive.jsx";
+import { Composed } from "./utils/postprocessing.js";
 
 export interface EditableProps {
     scene?: ReactNode
@@ -32,7 +33,9 @@ export function Editor({ scene, controls, ui }: EditorProps) {
     return (
         <OverlaysProvider>
             <InteractiveCanvas>
-                <Editable scene={scene} controls={controls} />
+                <Composed>
+                    <Editable scene={scene} controls={controls} />
+                </Composed>
             </InteractiveCanvas>
             <EditorUI {...ui} />
         </OverlaysProvider>

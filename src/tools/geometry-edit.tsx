@@ -4,6 +4,7 @@ import { useIsSelected, useSelection } from './select.js';
 import * as THREE from 'three';
 import { Toolbar } from '../ui/toolbar.js';
 import { MultiSelect } from '../ui/select.js';
+import { Parented } from '../utils/parented.js';
 
 export enum GeometryEditMode {
     vertex = 0x1,
@@ -80,11 +81,11 @@ export function GeometryEditComponent({ mode, object }: GeometryEditComponentPro
     const helper = useMemo(() => new GeometryMeshObject3DHelper(object), [object])
 
     return (
-        <group parent={helper.obj}>
+        <Parented parent={helper.obj}>
             {mode & GeometryEditMode.vertex && <GeometryEditVertices helper={helper} />}
             {mode & GeometryEditMode.edge && <GeometryEditEdges helper={helper} />}
             {mode & GeometryEditMode.face && <GeometryEditFaces helper={helper} />}
-        </group>
+        </Parented>
     )
 }
 

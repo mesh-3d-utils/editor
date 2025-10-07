@@ -4,6 +4,7 @@ import { Euler, Matrix4, Object3D, Quaternion, Vector3 } from 'three'
 import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { MultiSelect, Select } from '../ui/select.js'
 import { Toolbar } from '../ui/toolbar.js'
+import { Parented } from '../utils/parented.js'
 
 export class TransformInfo {
     readonly listeners = {
@@ -34,7 +35,7 @@ export enum TransformCoordinateSystem {
     global = 'global',
 }
 
-export enum TransformParent {
+export enum TransformOrigin {
     average = 'average',
     each = 'each',
     first = 'first',
@@ -48,14 +49,14 @@ export interface TransformType {
 }
 
 export interface TransformToolProps {
-    parent?: TransformParent
+    transformOrigin?: TransformOrigin
     coordinateSystem?: TransformCoordinateSystem
     transformType?: Readonly<TransformType>
 }
 
 export function TransformTool({
         coordinateSystem = TransformCoordinateSystem.local,
-        parent = TransformParent.average,
+        transformOrigin = TransformOrigin.average,
         transformType = {
             translate: true,
             rotate: false,
@@ -73,8 +74,8 @@ export function TransformTool({
         transformType,
     }
 
-    switch(parent) {
-        case TransformParent.average:
+    switch(transformOrigin) {
+        case TransformOrigin.average:
             const average = useRef<Object3D>(null!)
             
             useEffect(() => {
@@ -113,11 +114,11 @@ export function TransformTool({
                 </group>
             )
         
-        case TransformParent.each:
+        case TransformOrigin.each:
             return selection.map(object => <TransformComponent key={object.uuid} object={object} {...transformComponentProps} />)
-        case TransformParent.first:
+        case TransformOrigin.first:
             return <TransformComponent object={selection[0]} {...transformComponentProps} />
-        case TransformParent.last:
+        case TransformOrigin.last:
             return <TransformComponent object={selection[selection.length - 1]} {...transformComponentProps} />
     }
 }
@@ -126,7 +127,7 @@ export interface EditorTransformControlsProps {
 }
 
 export function EditorTransformControls({ }: EditorTransformControlsProps) {
-    const [parent, setParent] = useState<TransformParent>(TransformParent.average)
+    const [transformOrigin, setTransformOrigin] = useState<TransformOrigin>(TransformOrigin.average)
     const [coordinateSystem, setCoordinateSystem] = useState<TransformCoordinateSystem>(TransformCoordinateSystem.local)
     const [transformType, setTransformType] = useState<TransformType>({
         translate: true,
@@ -156,8 +157,8 @@ export function EditorTransformControls({ }: EditorTransformControlsProps) {
     return (
         <>
             <TransformTool
+                transformOrigin={transformOrigin}
                 transformType={transformType}
-                parent={parent}
                 coordinateSystem={coordinateSystem}
             />
             <Toolbar>
@@ -180,28 +181,28 @@ export function EditorTransformControls({ }: EditorTransformControlsProps) {
                 <Select
                     items={[
                         {
-                            value: TransformParent.average,
+                            value: TransformOrigin.average,
                             text: 'Average',
                             icon: <>A</>,
                         },
                         {
-                            value: TransformParent.each,
+                            value: TransformOrigin.each,
                             text: 'Each',
                             icon: <>E</>,
                         },
                         {
-                            value: TransformParent.first,
+                            value: TransformOrigin.first,
                             text: 'First',
                             icon: <>F</>,
                         },
                         {
-                            value: TransformParent.last,
+                            value: TransformOrigin.last,
                             text: 'Last',
                             icon: <>L</>,
                         },
                     ]}
-                    value={parent}
-                    onChange={value => setParent(value as TransformParent)}
+                    value={transformOrigin}
+                    onChange={value => setTransformOrigin(value as TransformOrigin)}
                 />
                 <MultiSelect
                     items={[
@@ -230,7 +231,7 @@ export function EditorTransformControls({ }: EditorTransformControlsProps) {
 }
 
 interface TransformComponentProps {
-    object?: Object3D | undefined | null
+    object?: Object3D | null
 
     coordinateSystem: TransformCoordinateSystem
     transformType: Readonly<TransformType>
@@ -280,22 +281,24 @@ function TransformComponent({ object, coordinateSystem, transformType }: Transfo
     const space: TransformControlsProps['space'] = coordinateSystem === TransformCoordinateSystem.global ? 'world' : 'local'
 
     return (
-        <object3D parent={object} ref={transformedObj}>
-            {transformType.translate && <TransformControls
-                object={transformedObj}
-                mode='translate'
-                space={space}
-                onChange={onTransform} />}
-            {transformType.rotate && <TransformControls
-                object={transformedObj}
-                mode='rotate'
-                space={space}
-                onChange={onTransform} />}
-            {transformType.scale && <TransformControls
-                object={transformedObj}
-                mode='scale'
-                space={space}
-                onChange={onTransform} />}
-        </object3D>
+        <Parented parent={object}>
+            <object3D ref={transformedObj}>
+                {transformType.translate && <TransformControls
+                    object={transformedObj}
+                    mode='translate'
+                    space={space}
+                    onChange={onTransform} />}
+                {transformType.rotate && <TransformControls
+                    object={transformedObj}
+                    mode='rotate'
+                    space={space}
+                    onChange={onTransform} />}
+                {transformType.scale && <TransformControls
+                    object={transformedObj}
+                    mode='scale'
+                    space={space}
+                    onChange={onTransform} />}
+            </object3D>
+        </Parented>
     )
 }

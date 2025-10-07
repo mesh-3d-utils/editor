@@ -20,8 +20,8 @@ export function EditorControls({
         <>
             {orbit === true ? <OrbitControls enablePan enableZoom enableRotate /> : <OrbitControls {...orbit} />}
             <SelectControls {...select} />
-            <EditorTransformControls {...transform} />
-            <GeometryEditControls {...geometryEdit} />
+            {/* <EditorTransformControls {...transform} /> */}
+            {/* <GeometryEditControls {...geometryEdit} /> */}
         </>
     )
 }
