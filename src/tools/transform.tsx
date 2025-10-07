@@ -376,14 +376,15 @@ function TransformComponent({ object, coordinateSystem, transformType }: Transfo
         if (!obj)
             throw new Error('object is undefined')
         
-        const transformObj = transformedObj_ref.current
+        const transformObj = transformedObj_resolved
         if (!transformObj)
             throw new Error('transformObj_resolved is undefined')
 
-        // discern delta transform from previous onTransform() call
-        // apply inverse delta transform to the transformedObj
-        // apply to the transform listeners
-        // transformedObj is child of an object responding to the transform listeners
+        // delta transform is the local transform of transformedObj
+        // delta transform is applied to the transform listeners
+        // reposition transformedObj to local identity
+        // though its parent (object) is listening to the transform events
+        // and applies the delta transform
         // so it will appear to transform following user intent
         // though this permits other objects to respond to the transform listeners
         // though they weren't dragged/rotated/scale directly
@@ -402,24 +403,27 @@ function TransformComponent({ object, coordinateSystem, transformType }: Transfo
                 break
         }
 
-        // transformObj.applyMatrix4(deltaTransform.clone().invert())
         const d_position = new Vector3()
         const d_quaternion = new Quaternion()
         const d_scale = new Vector3()
         deltaTransform.decompose(d_position, d_quaternion, d_scale)
         const d_rotation = new Euler().setFromQuaternion(d_quaternion)
         const precision = 3
-        // console.log(`onTransform ` +
-        //     `position: ${d_position.x.toFixed(precision)}, ${d_position.y.toFixed(precision)}, ${d_position.z.toFixed(precision)}, ` +
-        //     `rotation: ${d_rotation.x.toFixed(precision)}, ${d_rotation.y.toFixed(precision)}, ${d_rotation.z.toFixed(precision)}, ` +
-        //     `scale: ${d_scale.x.toFixed(precision)}, ${d_scale.y.toFixed(precision)}, ${d_scale.z.toFixed(precision)}`)
+        console.log(`onTransform ` +
+            `position: ${d_position.x.toFixed(precision)}, ${d_position.y.toFixed(precision)}, ${d_position.z.toFixed(precision)}, ` +
+            `rotation: ${d_rotation.x.toFixed(precision)}, ${d_rotation.y.toFixed(precision)}, ${d_rotation.z.toFixed(precision)}, ` +
+            `scale: ${d_scale.x.toFixed(precision)}, ${d_scale.y.toFixed(precision)}, ${d_scale.z.toFixed(precision)}`)
         
-        transformObj.matrix.identity()
-        transformObj.updateMatrix()
+        if (transformObj.position.x > 0.5) {
+            transformObj.position.set(0, 0, 0)
+            transformObj.rotation.set(0, 0, 0)
+            transformObj.scale.set(1, 1, 1)
+            transformObj.updateMatrix()
+        }
         
         for (const listener of transformInfo.listeners.transform)
             listener(deltaTransform, obj)
-    }, [transformInfo, object])
+    }, [transformInfo, object, transformedObj_resolved])
 
     // in 'each' transform mode,
     useOnTransform(deltaTransform => {
