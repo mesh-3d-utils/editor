@@ -1,11 +1,15 @@
 import { Object3D, Scene } from "three"
-import { Canvas, CanvasProps, EventHandlers, ThreeEvent, useThree } from "@react-three/fiber"
-import { DependencyList, forwardRef, MutableRefObject, Ref, RefObject, useCallback, useEffect, useRef } from "react"
+import { Canvas, CanvasProps, EventHandlers, useThree } from "@react-three/fiber"
+import { DependencyList, forwardRef, RefObject, useEffect, useMemo, useRef } from "react"
 
 export interface InteractiveObject3D {
     listeners?: {
         [K in keyof EventHandlers]?: EventHandlers[K][]
     }
+}
+
+export type ThreeEventArgs = {
+    [EventName in keyof EventHandlers]: Parameters<NonNullable<EventHandlers[EventName]>>[0]
 }
 
 function interactionEventEffect<EventName extends keyof EventHandlers>(obj: Object3D, event: EventName, listener: EventHandlers[EventName]) {
@@ -32,48 +36,52 @@ export function useInteractionEvent<EventName extends keyof EventHandlers>(ref: 
 }
 
 export const InteractiveCanvas = forwardRef<HTMLCanvasElement, CanvasProps>((props, ref) => {
-    const eventNames: readonly (keyof EventHandlers)[] = [
-        'onClick',
-        'onContextMenu',
-        'onDoubleClick',
-        'onPointerUp',
-        'onPointerDown',
-        'onPointerOver',
-        'onPointerOut',
-        'onPointerEnter',
-        'onPointerLeave',
-        'onPointerMove',
-        'onPointerMissed',
-        'onPointerCancel',
-        'onWheel',
-        'onLostPointerCapture',
-    ] as const
-
-    const eventHandlers: EventHandlers = {
-    }
-
     const sceneRoot = useRef<Scene | null>(null)
+    
+    const eventHandlers = useMemo(() => {
+        const eventNames: readonly (keyof EventHandlers)[] = [
+            'onClick',
+            'onContextMenu',
+            'onDoubleClick',
+            'onPointerUp',
+            'onPointerDown',
+            'onPointerOver',
+            'onPointerOut',
+            'onPointerEnter',
+            'onPointerLeave',
+            'onPointerMove',
+            'onPointerMissed',
+            'onPointerCancel',
+            'onWheel',
+            'onLostPointerCapture',
+        ] as const
 
-    function setupEvent<EventName extends keyof EventHandlers>(eventName: EventName) {
-        eventHandlers[eventName] = useCallback<NonNullable<EventHandlers[EventName]>>((event: Parameters<NonNullable<EventHandlers[EventName]>>[0]) => {
-            // threejs event, could be listened to by useObjectInteractionEvent
-            // the canvas is the eventObject, the interacted object is just object
-            // the scene receives every event
+        const eventHandlers: EventHandlers = {
+        }
 
-            const objects =
-                ('eventObject' in event) ?
-                    [event.object] :
-                    []
+        function setupEvent<EventName extends keyof EventHandlers>(eventName: EventName) {
+            eventHandlers[eventName] = ((event: ThreeEventArgs[EventName]) => {
+                // threejs event, could be listened to by useObjectInteractionEvent
+                // the canvas is the eventObject, the interacted object is just object
+                // the scene receives every event
+
+                const objects =
+                    (event && ('eventObject' in event)) ?
+                        [event.object] :
+                        []
             
-            for (const object of [...objects, sceneRoot.current!]) {
-                const interactiveObject = object as InteractiveObject3D
-                interactiveObject.listeners?.[eventName]?.forEach(handler => handler?.(event as any))
-            }
-        }, [sceneRoot]) as EventHandlers[EventName]
-    }
+                for (const object of [...objects, sceneRoot.current!]) {
+                    const interactiveObject = object as InteractiveObject3D
+                    interactiveObject.listeners?.[eventName]?.forEach(handler => handler?.(event as any))
+                }
+            }) as EventHandlers[EventName]
+        }
 
-    for (const eventName of eventNames)
-        setupEvent(eventName)
+        for (const eventName of eventNames)
+            setupEvent(eventName)
+
+        return eventHandlers
+    }, [sceneRoot])
 
     const propsWithoutChildren = { ...props }
     delete propsWithoutChildren.children

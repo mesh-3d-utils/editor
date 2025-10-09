@@ -1,5 +1,6 @@
 import { ObservableList } from "@code-essentials/utils"
-import { createContext, PropsWithChildren, useContext, useEffect, useInsertionEffect, useState } from "react"
+import { createContext, CSSProperties, memo, PropsWithChildren, useContext, useEffect, useInsertionEffect, useState } from "react"
+import { useObservableList } from "../utils/observable-list"
 
 export enum OverlayCorner {
     top_left = 'top-left',
@@ -103,16 +104,17 @@ interface OverlaysCornerRendererProps {
     corner: OverlayCorner
 }
 
-function OverlaysCornerRenderer({ corner }: OverlaysCornerRendererProps) {
+const OverlaysCornerRenderer = memo(({ corner }: OverlaysCornerRendererProps) => {
     const { overlays } = useOverlays()
+    useObservableList(overlays)
 
     return (
         <>
             {overlays.filter(overlay => overlay.corner === corner).map((overlay, i) => (
-                <div key={i} style={{ position: 'absolute', top: 0, left: 0 }}>
+                <div key={i} style={{ display: 'inline-flex', alignItems: 'center' }}>
                     {overlay.children}
                 </div>
             ))}
         </>
     )
-}
+})

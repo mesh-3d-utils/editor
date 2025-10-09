@@ -8,7 +8,7 @@ import { useObjectInteractionEvent } from "./interactive.js"
 import { Outline, OutlineProps } from '@react-three/postprocessing';
 import { memo } from "react"
 import { PostProcessingEffect } from "../utils/postprocessing.js"
-import { isDescendantOf, Parented } from "../utils/parented.js"
+import { isDescendantOfOrEqual, Parented } from "../utils/parented.js"
 import { useObservableList } from "../utils/observable-list.js"
 
 export interface SelectionInfo {
@@ -42,9 +42,12 @@ export function useSelectionInfo() {
     return selectionInfo
 }
 
-export function useSelection() {
+export function useSelection<Observe extends boolean = true>(observe = true as Observe) {
     const selectionInfo = useSelectionInfo()
-    return useObservableList(selectionInfo.selection)
+    if(observe)
+        return useObservableList(selectionInfo.selection)
+    else
+        return selectionInfo.selection
 }
 
 export function useIsSelected(object?: Object3D | undefined) {
@@ -88,13 +91,17 @@ export function SelectTool({ mode }: SelectToolProps) {
     const selectionInfo = useSelectionInfo()
     const scene = useThree(s => s.scene)
 
+    useObjectInteractionEvent(scene, 'onPointerMissed', () => {
+        selectionInfo.selection.splice(0, selectionInfo.selection.length)
+    })
+
     useObjectInteractionEvent(scene, 'onClick', event => {
         const {
             object,
         } = event
 
         if (object instanceof Object3D) {
-            if (selectionInfo.selectableRoots.some(root => isDescendantOf(object, root))) {
+            if (selectionInfo.selectableRoots.some(root => isDescendantOfOrEqual(object, root))) {
                 switch (mode) {
                     case SelectionMode.replace:
                         selectionInfo.selection.splice(0, selectionInfo.selection.length)
@@ -117,11 +124,18 @@ export function SelectTool({ mode }: SelectToolProps) {
 }
 
 export interface SelectControlsProps {
+    indicator?: SelectionIndicatorProps
 }
 
-export function SelectControls({ }: SelectControlsProps) {
+export function SelectControls({
+        indicator = {
+            color: new Color(1, 1, 1),
+            outline: {
+            }
+        }
+    }: SelectControlsProps) {
     const [mode, setMode] = useState<SelectionMode>(SelectionMode.replace)
-    
+
     return (
         <>
             <SelectTool mode={mode} />
@@ -130,11 +144,12 @@ export function SelectControls({ }: SelectControlsProps) {
                     value={mode}
                     onChange={value => setMode(value as SelectionMode)}
                     items={[
-                    { value: 'replace', text: 'Replace', icon: <>0</> },
-                    { value: 'add', text: 'Add', icon: <>+</> },
-                    { value: 'remove', text: 'Remove', icon: <>-</> },
+                    { value: SelectionMode.replace, text: 'Replace', icon: <>0</> },
+                    { value: SelectionMode.add, text: 'Add', icon: <>+</> },
+                    { value: SelectionMode.remove, text: 'Remove', icon: <>-</> },
                 ]} />
             </Toolbar>
+            <SelectionIndicator key='indicator' {...indicator} />
         </>
     )
 }

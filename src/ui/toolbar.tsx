@@ -1,5 +1,5 @@
 import { PropsWithChildren } from "react";
-import { Overlay, OverlayCorner } from "./overlay";
+import { Overlay, OverlayCorner } from "./overlay.js";
 
 export interface ToolbarProps extends PropsWithChildren {
 }
