@@ -1,5 +1,5 @@
 import { TransformControls, TransformControlsProps } from '@react-three/drei'
-import { useSelection } from './select.js'
+import { useSelectionInfo } from './select.js'
 import { Matrix4, Object3D, Quaternion, Vector3 } from 'three'
 import { createContext, DependencyList, memo, PropsWithChildren, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { MultiSelect, Select } from '../ui/select.js'
@@ -9,8 +9,9 @@ import { useItemEffect, useObservableList } from '../utils/observable-list.js'
 import { useThree } from '@react-three/fiber'
 import { ObservableList } from '@code-essentials/utils'
 import { Checkbox } from '@mui/material'
-import { ThreeEventArgs, useObjectInteractionEvent } from './interactive.js'
+import { useObjectInteractionEvent } from './interactive.js'
 import { TransformControls as TransformControlsImpl } from 'three-stdlib'
+import { EventArgs } from './interactive.js'
 
 export class TransformInfo {
     readonly listeners: {
@@ -74,7 +75,7 @@ export function useTransformListener<K extends keyof TransformEvents>(event: K, 
         return () => {
             const index = transformInfo.listeners[event].indexOf(callback)
             if (index !== -1)
-                transformInfo.listeners.transform.splice(index, 1)
+                transformInfo.listeners[event].splice(index, 1)
         }
     }, [transformInfo, callback, ...(deps ?? [])])
 }
@@ -137,31 +138,29 @@ export function TransformTool(props: TransformToolProps) {
 
 const TransformTool_first = memo((props: TransformToolProps) => {
     const { objects, ...transformComponentProps } = props
-    useObservableList(objects)
-    const object = objects[0]
+    const object = useObservableList(objects).at(0)
     if (!object)
-        return <></>
+        return null
 
     return <TransformComponent object={object} {...transformComponentProps} />
 })
 
 const TransformTool_last = memo((props: TransformToolProps) => {
     const { objects, ...transformComponentProps } = props
-    useObservableList(objects)
-    const object = objects.at(-1)
+    const object = useObservableList(objects).at(-1)
     if (!object)
-        return <></>
+        return null
 
     return <TransformComponent object={object} {...transformComponentProps} />
 })
 
 const TransformTool_each = memo((props: TransformToolProps) => {
     const { objects, ...transformComponentProps } = props
-    useObservableList(objects)
+    const objects_ = useObservableList(objects)
 
     return (
         <group name="transform-tools">
-            {objects.map(object => <TransformComponent key={object.uuid} object={object} {...transformComponentProps} />)}
+            {objects_.map(object => <TransformComponent key={object.uuid} object={object} {...transformComponentProps} />)}
         </group>
     )
 })
@@ -241,8 +240,21 @@ function useIslands(objects: ObservableList<Object3D>) {
     const islands = useMemo(() => new ObservableList<Object3D>(...computeIslands(objects)), [])
     
     useItemEffect(objects, object => {
-        if (!islands.some(island => isDescendantOf(object, island)))
-            islands.push(object)
+        if (islands.includes(object))
+            return
+
+        // if this object is not a descendant of any other island, it's an island
+        if (islands.some(island => isDescendantOf(object, island)))
+            return
+
+        islands.push(object)
+
+        // remove islands that are no longer islands
+        for (let i = 0; i < islands.length; i++) {
+            const island = islands[i]!
+            if (isDescendantOf(island, object))
+                islands.splice(i--, 1)
+        }
 
         return () => {
             // objects eligible for island d/t item object removed
@@ -254,15 +266,17 @@ function useIslands(objects: ObservableList<Object3D>) {
                     objectsNowIslands.splice(i--, 1)
             }
 
-            islands.splice(islands.indexOf(object), 1, ...objectsNowIslands)
+            const index = islands.indexOf(object)
+            if (index !== -1)
+                islands.splice(index, 1, ...objectsNowIslands)
         }
-    }, [objects])
+    }, [], 'islands')
 
     return islands
 }
 
 function useTransformableObjects(islandTransform: boolean) {
-    const selection = useSelection()
+    const selection = useSelectionInfo().selection
     const islands = useIslands(selection)
 
     return islandTransform ? islands : selection
@@ -358,7 +372,6 @@ export function EditorTransformControls({ }: EditorTransformControlsProps) {
     }, [transformType])
 
     const objects = useTransformableObjects(islandTransform)
-
     useApplyTransform(objects, coordinateSystem)
     
     return (
@@ -483,6 +496,7 @@ function setObjectTransform(object: Object3D, matrix: Matrix4) {
 
 function TransformComponent({ object, coordinateSystem, transformType }: TransformComponentProps) {
     const transformInfo = useTransformInfo()
+    const selectionInfo = useSelectionInfo()
 
     const startTransform = useRef<Matrix4 | null>(null)
 
@@ -490,6 +504,8 @@ function TransformComponent({ object, coordinateSystem, transformType }: Transfo
         if (!object)
             return
         
+        selectionInfo.disabled = true
+
         startTransform.current = getCurrentTransform(object, coordinateSystem)
         for (const listener of transformInfo.listeners.start)
             listener(object)
@@ -500,11 +516,13 @@ function TransformComponent({ object, coordinateSystem, transformType }: Transfo
             return
         
         if (!startTransform.current)
-            throw new Error('startTransform is undefined')
+            return
 
         const endTransform = getCurrentTransform(object, coordinateSystem)
         const deltaTransform = endTransform.invert().multiply(startTransform.current)
         startTransform.current = null
+
+        setTimeout(() => selectionInfo.disabled = false, 100)
 
         for (const listener of transformInfo.listeners.complete)
             listener(object, deltaTransform)
@@ -533,7 +551,7 @@ function TransformComponent({ object, coordinateSystem, transformType }: Transfo
     const transformControlRef_scale = useRef<TransformControlsImpl|null>(null)
 
     //TODO: gizmo is not in intersection result
-    const onGizmoEvent = useCallback((e: ThreeEventArgs['onClick' | 'onPointerDown' | 'onPointerUp']) => {
+    const onGizmoEvent = useCallback((...[e]: EventArgs['onClick' | 'onPointerDown' | 'onPointerUp']) => {
         if (e?.object === transformControlRef_translate.current ||
             e?.object === transformControlRef_rotate.current ||
             e?.object === transformControlRef_scale.current)

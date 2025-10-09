@@ -5,8 +5,6 @@ export type OrbitToolProps = ImplOrbitControlsProps
 
 export function OrbitTool(props: OrbitToolProps) {
     const transforming = useIsTransforming()
-    console.log(`transforming: ${transforming}`)
-    
     return (<ImplOrbitControls enablePan enableZoom enableRotate {...props} enabled={!transforming} />)
 }
 

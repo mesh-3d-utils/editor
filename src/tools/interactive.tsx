@@ -4,28 +4,43 @@ import { DependencyList, forwardRef, RefObject, useEffect, useMemo, useRef } fro
 
 export interface InteractiveObject3D {
     listeners?: {
-        [K in keyof EventHandlers]?: EventHandlers[K][]
+        [K in keyof InteractiveObjectEventHandlers]?: InteractiveObjectEventHandlers[K][]
     }
 }
 
-export type ThreeEventArgs = {
-    [EventName in keyof EventHandlers]: Parameters<NonNullable<EventHandlers[EventName]>>[0]
+type ThreeFiberEventHandlers = Required<EventHandlers>
+
+export interface InteractiveObjectEventHandlers extends ThreeFiberEventHandlers {
 }
 
-function interactionEventEffect<EventName extends keyof EventHandlers>(obj: Object3D, event: EventName, listener: EventHandlers[EventName]) {
+export type EventArgs = {
+    [EventName in keyof InteractiveObjectEventHandlers]-?: Parameters<NonNullable<InteractiveObjectEventHandlers[EventName]>>
+}
+
+export function dispatchObjectEvent<EventName extends keyof InteractiveObjectEventHandlers>(object: Object3D, event: EventName, ...args: EventArgs[EventName]) {
+    const obj = object as InteractiveObject3D
+    for (const listener of obj.listeners?.[event] ?? [])
+        ///@ts-ignore
+        listener?.(...args)
+}
+
+function interactionEventEffect<EventName extends keyof InteractiveObjectEventHandlers>(obj: Object3D, event: EventName, listener: InteractiveObjectEventHandlers[EventName]) {
     const listeners = (obj as InteractiveObject3D).listeners ??= {}
-    const handlers = (listeners[event] ??= []) as EventHandlers[EventName][]
+    const handlers = (listeners[event] ??= []) as InteractiveObjectEventHandlers[EventName][]
     handlers.push(listener)
     return () => {
         handlers.splice(handlers.indexOf(listener), 1)
     }
 }
 
-export function useObjectInteractionEvent<EventName extends keyof EventHandlers>(obj: Object3D, event: EventName, listener: EventHandlers[EventName], deps?: DependencyList) {
-    useEffect(() => interactionEventEffect(obj, event, listener), [obj, listener, ...(deps ?? [])])
+export function useObjectInteractionEvent<EventName extends keyof InteractiveObjectEventHandlers>(obj: Object3D | null | undefined, event: EventName, listener: InteractiveObjectEventHandlers[EventName], deps?: DependencyList) {
+    useEffect(() => {
+        if (obj)
+            return interactionEventEffect(obj, event, listener)
+    }, [obj, listener, ...(deps ?? [])])
 }
 
-export function useInteractionEvent<EventName extends keyof EventHandlers>(ref: RefObject<Object3D|null>, event: EventName, listener: EventHandlers[EventName], deps?: DependencyList) {
+export function useInteractionEvent<EventName extends keyof InteractiveObjectEventHandlers>(ref: RefObject<Object3D|null>, event: EventName, listener: InteractiveObjectEventHandlers[EventName], deps?: DependencyList) {
     useEffect(() => {
         const obj = ref.current
         if (!obj)
@@ -39,7 +54,7 @@ export const InteractiveCanvas = forwardRef<HTMLCanvasElement, CanvasProps>((pro
     const sceneRoot = useRef<Scene | null>(null)
     
     const eventHandlers = useMemo(() => {
-        const eventNames: readonly (keyof EventHandlers)[] = [
+        const eventNames: readonly (keyof ThreeFiberEventHandlers)[] = [
             'onClick',
             'onContextMenu',
             'onDoubleClick',
@@ -56,11 +71,11 @@ export const InteractiveCanvas = forwardRef<HTMLCanvasElement, CanvasProps>((pro
             'onLostPointerCapture',
         ] as const
 
-        const eventHandlers: EventHandlers = {
+        const eventHandlers: Partial<ThreeFiberEventHandlers> = {
         }
 
-        function setupEvent<EventName extends keyof EventHandlers>(eventName: EventName) {
-            eventHandlers[eventName] = ((event: ThreeEventArgs[EventName]) => {
+        function setupEvent<EventName extends keyof ThreeFiberEventHandlers>(eventName: EventName) {
+            eventHandlers[eventName] = ((event: Parameters<ThreeFiberEventHandlers[EventName]>[0]) => {
                 // threejs event, could be listened to by useObjectInteractionEvent
                 // the canvas is the eventObject, the interacted object is just object
                 // the scene receives every event
@@ -70,11 +85,9 @@ export const InteractiveCanvas = forwardRef<HTMLCanvasElement, CanvasProps>((pro
                         [event.object] :
                         []
             
-                for (const object of [...objects, sceneRoot.current!]) {
-                    const interactiveObject = object as InteractiveObject3D
-                    interactiveObject.listeners?.[eventName]?.forEach(handler => handler?.(event as any))
-                }
-            }) as EventHandlers[EventName]
+                for (const object of [...objects, sceneRoot.current!])
+                    dispatchObjectEvent(object, eventName, event as any)
+            })
         }
 
         for (const eventName of eventNames)

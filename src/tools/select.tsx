@@ -4,16 +4,17 @@ import { Mesh, Object3D, Color } from "three"
 import { Toolbar } from "../ui/toolbar.js"
 import { Select } from "../ui/select.js"
 import { useThree } from "@react-three/fiber"
-import { useObjectInteractionEvent } from "./interactive.js"
+import { dispatchObjectEvent, useObjectInteractionEvent } from "./interactive.js"
 import { Outline, OutlineProps } from '@react-three/postprocessing';
 import { memo } from "react"
 import { PostProcessingEffect } from "../utils/postprocessing.js"
 import { isDescendantOfOrEqual, Parented } from "../utils/parented.js"
-import { useObservableList } from "../utils/observable-list.js"
+import { useItemEffect, useMembershipRef, useObservableList } from "../utils/observable-list.js"
 
 export interface SelectionInfo {
     readonly selection: ObservableList<Object3D>
     readonly selectableRoots: ObservableList<Object3D>
+    disabled?: boolean
 }
 
 const selectionInfoContext = createContext<SelectionInfo | undefined>(undefined)
@@ -42,33 +43,50 @@ export function useSelectionInfo() {
     return selectionInfo
 }
 
-export function useSelection<Observe extends boolean = true>(observe = true as Observe) {
+export function useSelection<Observe extends boolean = true>(config?: { observe?: Observe }): Observe extends true ? Object3D[] : ObservableList<Object3D> {
+    const { observe = true as Observe } = config ?? {}
     const selectionInfo = useSelectionInfo()
-    if(observe)
-        return useObservableList(selectionInfo.selection)
+    if (observe)
+        return useObservableList(selectionInfo.selection) as ReturnType<typeof useSelection<Observe>>
     else
         return selectionInfo.selection
 }
 
-export function useIsSelected(object?: Object3D | undefined) {
+export function useIsSelected(object: Object3D | undefined) {
     const selection = useSelection()
     return object ? selection.includes(object) : false
+}
+
+declare module './interactive.js' {
+    export interface InteractiveObjectEventHandlers {
+        onSelected(): void
+        onDeselected(): void
+        onSelectedChanged(selection: boolean): void
+    }
+}
+
+function useRaiseSelectionEvents() {
+    const selection = useSelection({ observe: false })
+    
+    useItemEffect(selection, object => {
+        dispatchObjectEvent(object, 'onSelected')
+        dispatchObjectEvent(object, 'onSelectedChanged', true)
+
+        return () => {
+            dispatchObjectEvent(object, 'onDeselected')
+            dispatchObjectEvent(object, 'onSelectedChanged', false)
+        }
+    }, [selection])
 }
 
 export interface SelectableProps extends PropsWithChildren {
 }
 
 export function Selectable({ children }: SelectableProps) {
-    const ref = useRef<Object3D>(null!)
+    const ref = useRef<Object3D|null>(null)
     const selectionInfo = useSelectionInfo()
-    useEffect(() => {
-        if (!selectionInfo.selectableRoots.includes(ref.current))
-            selectionInfo.selectableRoots.push(ref.current)
-        
-        return () => {
-            selectionInfo.selectableRoots.splice(selectionInfo.selectableRoots.indexOf(ref.current), 1)
-        }
-    }, [selectionInfo])
+
+    useMembershipRef(selectionInfo.selectableRoots, ref)
 
     return (
         <group ref={ref}>
@@ -79,6 +97,7 @@ export function Selectable({ children }: SelectableProps) {
 
 export enum SelectionMode {
     replace = 'replace',
+    toggle = 'toggle',
     add = 'add',
     remove = 'remove',
 }
@@ -91,31 +110,53 @@ export function SelectTool({ mode }: SelectToolProps) {
     const selectionInfo = useSelectionInfo()
     const scene = useThree(s => s.scene)
 
-    useObjectInteractionEvent(scene, 'onPointerMissed', () => {
+    useObjectInteractionEvent(scene, 'onPointerMissed', event => {
+        if (selectionInfo.disabled)
+            return
+
         selectionInfo.selection.splice(0, selectionInfo.selection.length)
+        event.stopPropagation()
     })
 
     useObjectInteractionEvent(scene, 'onClick', event => {
+        if (selectionInfo.disabled)
+            return
+
         const {
             object,
         } = event
 
         if (object instanceof Object3D) {
             if (selectionInfo.selectableRoots.some(root => isDescendantOfOrEqual(object, root))) {
+                const selection = selectionInfo.selection
+                const index = selection.indexOf(object)
+                const includes = index !== -1
+
+                //TODO: does react development mode twice fire event?
+                // is this handled by three fiber?
+
                 switch (mode) {
                     case SelectionMode.replace:
-                        selectionInfo.selection.splice(0, selectionInfo.selection.length)
-                        selectionInfo.selection.push(object)
+                        if (!(selection.length === 1 && selection[0] === object))
+                            selectionInfo.selection.splice(0, selectionInfo.selection.length, object)
+                        break
+                    case SelectionMode.toggle:
+                        if (includes)
+                            selection.splice(index, 1)
+                        else
+                            selection.push(object)
                         break
                     case SelectionMode.add:
-                        selectionInfo.selection.push(object)
+                        if (!includes)
+                            selection.push(object)
                         break
                     case SelectionMode.remove:
-                        const index = selectionInfo.selection.indexOf(object)
-                        if (index !== -1)
-                            selectionInfo.selection.splice(index, 1)
+                        if (includes)
+                            selection.splice(index, 1)
                         break
                 }
+
+                event.stopPropagation()
             }
         }
     }, [selectionInfo])
@@ -129,12 +170,13 @@ export interface SelectControlsProps {
 
 export function SelectControls({
         indicator = {
-            color: new Color(1, 1, 1),
-            outline: {
-            }
+            color: new Color(0, 0.2, 1),
+            // outline: {
+            // }
         }
     }: SelectControlsProps) {
     const [mode, setMode] = useState<SelectionMode>(SelectionMode.replace)
+    useRaiseSelectionEvents()
 
     return (
         <>
@@ -200,6 +242,7 @@ const SelectionIndicatorTintObj = memo(({obj, props}: SelectionIndicatorTintObjP
     return (
         <Parented parent={obj}>
             <mesh
+                name="selection-indicator-tint"
                 // geometry is fixed and prepared because obj was selected by user
                 geometry={obj.geometry}
                 position={[0, 0, 0]}

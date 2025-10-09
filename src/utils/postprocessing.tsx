@@ -1,11 +1,7 @@
 import { ObservableList } from "@code-essentials/utils";
-import { useEffect } from "react";
-import { useContext } from "react";
-import { useMemo } from "react";
-import { createContext, PropsWithChildren } from "react";
+import { createContext, JSX, PropsWithChildren, ReactNode, useContext, useMemo } from "react";
 import { EffectComposer } from "@react-three/postprocessing";
-import { ReactNode } from "react";
-import { JSX } from "react";
+import { useMembership } from "./observable-list";
 
 const postprocessingChildrenContext = createContext<ObservableList<ReactNode> | null>(null)
 
@@ -40,18 +36,15 @@ export function Composed({ children, multisampling }: PropsWithChildren<Composed
     )
 }
 
-export function PostProcessingEffect({ children }: PropsWithChildren) {
+export function usePostProcessingEffects(...children: ReactNode[]) {
     const postprocessingChildren = useContext(postprocessingChildrenContext)
     if (!postprocessingChildren)
-        throw new Error('PostProcessingEffect must be used within a Composed')
+        throw new Error('usePostProcessingEffects must be used within a Composed')
     
-    useEffect(() => {
-        postprocessingChildren.push(children)
-        return () => {
-            const i = postprocessingChildren.indexOf(children);
-            if (i >= 0) postprocessingChildren.splice(i, 1)
-        }
-    }, [postprocessingChildren])
+    useMembership(postprocessingChildren, ...children)
+}
 
+export function PostProcessingEffect({ children }: PropsWithChildren) {
+    // usePostProcessingEffects(children)
     return null
 }

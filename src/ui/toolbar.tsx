@@ -9,12 +9,13 @@ export function Toolbar({ children }: ToolbarProps) {
     // children are layed out horizontally
     
     return (
-        <>
-            <Overlay corner={OverlayCorner.top_left}>
-                <div style={{ display: 'flex', flexDirection: 'row' }}>
-                    {children}
-                </div>
-            </Overlay>
-        </>
+        <Overlay corner={OverlayCorner.top_left}>
+            <div style={{
+                display: 'flex',
+                flexDirection: 'row',
+            }}>
+                {children}
+            </div>
+        </Overlay>
     )
 }

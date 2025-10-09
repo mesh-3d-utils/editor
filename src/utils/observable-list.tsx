@@ -1,11 +1,12 @@
 import { ObservableList } from "@code-essentials/utils"
-import { EffectCallback, useEffect, useState } from "react"
+import { RefObject, useEffect, useMemo, useRef, useState } from "react"
+import { useRefResolved } from "./ref"
 
 export function useObservableList<T>(list: ObservableList<T>) {
-    const [, forceUpdate] = useState({})
+    const [list_, setList_] = useState(list.slice())
 
     useEffect(() => {
-        const update = () => forceUpdate({})
+        const update = () => setList_(list.slice())
         list.on("insert", update)
         list.on("delete", update)
         list.on("reorder", update)
@@ -16,26 +17,79 @@ export function useObservableList<T>(list: ObservableList<T>) {
         }
     }, [list])
 
-    return list
+    return list_
 }
 
-export function useItemEffect<T>(list: ObservableList<T>, callback: (item: T) => ReturnType<EffectCallback>, deps?: any[]) {
+const start = Symbol()
+export function useMembership<T>(list: ObservableList<T>, ...members: (T | undefined | null)[]) {
+    const insertAfter = useRef<T | typeof start | undefined>(undefined)
+
     useEffect(() => {
-        const removal = new Map<T, () => void>()
+        const members_= members.filter<T>(_ => _ !== undefined && _ !== null)
+        
+        let insertIndex = list.length
+        if (insertAfter.current) {
+            if (insertAfter.current === start)
+                insertIndex = 0
+            else {
+                const index = list.indexOf(insertAfter.current)
+                if (index >= 0)
+                    insertIndex = index + 1
+            }
+        }
+        
+        insertAfter.current =
+            insertIndex === 0 ?
+                start :
+                list[insertIndex - 1]
+        
+        list.splice(insertIndex, 0, ...members_)
+
+        return () => {
+            if (members_.length === 0)
+                return
+
+            for (const member of members_) {
+                const index = list.indexOf(member)
+                if (index !== -1)
+                    list.splice(index, 1)
+            }
+        }
+    }, [list, ...members])
+}
+
+export function useMembershipRef<T>(list: ObservableList<T>, memberRef: RefObject<T | undefined | null>) {
+    const member = useRefResolved(memberRef)
+    useMembership(list, member)
+}
+
+export type Destructor = () => void
+
+export function useItemEffect<T>(list: ObservableList<T>, callback: (item: T) => void | Destructor, deps?: any[]) {
+    const destructors = useMemo(() => new Map<T, Destructor[]>(), [])
+
+    useEffect(() => {
         const onInsert = (item: T) => {
-            const remove = callback(item)
-            if (remove)
-                removal.set(item, remove)
+            const res = callback(item)
+            if (res) {
+                const destructors_item = destructors.get(item) ?? destructors.set(item, []).get(item)!
+                destructors_item.push(res)
+            }
         }
+
         const onDelete = (item: T) => {
-            const remove = removal.get(item)
-            if (remove)
-                remove()
-            removal.delete(item)
+            const destructors_item = destructors.get(item)
+            if (!destructors_item)
+                return
+
+            destructors_item.forEach(destructor => destructor?.())
+            destructors.delete(item)
         }
+
         list.on("insert", onInsert)
         list.on("delete", onDelete)
-        for(const item of list)
+        
+        for (const item of list)
             onInsert(item)
 
         return () => {
