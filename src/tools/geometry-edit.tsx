@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { Toolbar } from '../ui/toolbar.js';
 import { MultiSelect } from '../ui/select.js';
 import { Parented } from '../utils/parented.js';
+import { Instance, Instances } from '@react-three/drei';
 
 export interface GeometryEditMode {
     vertex: boolean
@@ -98,48 +99,56 @@ export function GeometryEditComponent({ mode, object }: GeometryEditComponentPro
 
 interface GeometryEditFeaturesProps {
     helper: GeometryMeshObject3DHelper
+    editor: {
+        colors: {
+            default: THREE.Color
+            selected: THREE.Color
+        }
+    }
 }
-
-// function useGeometry(helper: GeometryMeshObject3DHelper) {
-//     const [_, update] = useState({})
-
-//     useEffect(() => {
-//         helper
-//     }, [helper])
-// }
 
 interface GeometryEditFeatureProps extends GeometryEditFeaturesProps {
     /** specific feature to edit */
     index: number
 }
 
-function GeometryEditVertices({ helper }: GeometryEditFeaturesProps) {
+function GeometryEditVertices({ helper, editor }: GeometryEditFeaturesProps) {
+    // TODO: transition to using THREE.InstancedMesh directly
+    // though for relatively small meshes prototyping could work with Instances
+
+    //TODO: show vertices as screen-space sized
+    // custom vertex shader could be required for this
+
     return (
-        <group>
+        <Instances>
+            <sphereGeometry args={[0.1]} />
+            <meshStandardMaterial />
             {Array.from({ length: helper.meshRoot.mesh.vertices.x.length }, (_, i) => (
-                <GeometryEditVertex key={i} helper={helper} index={i} />
+                <GeometryEditVertex key={i} helper={helper} editor={editor} index={i} />
             ))}
-        </group>
+        </Instances>
     )
 }
 
-const GeometryEditVertex = memo(({ helper, index }: GeometryEditFeatureProps) => {
-    const ref = useRef<THREE.Mesh|undefined>(undefined)
+const GeometryEditVertex = memo(({ helper, index, editor }: GeometryEditFeatureProps) => {
+    const ref = useRef<THREE.Mesh | undefined>(undefined)
     const position_x = helper.meshRoot.mesh.vertices.x[index]!
     const position_y = helper.meshRoot.mesh.vertices.y[index]!
     const position_z = helper.meshRoot.mesh.vertices.z[index]!
     const isSelected = useIsSelected(ref.current)
 
     return (
-        <mesh ref={ref} position={[position_x, position_y, position_z]}>
-            <sphereGeometry args={[0.1]} />
-            <meshStandardMaterial color={isSelected ? "blue" : "black"} />
-        </mesh>
+        <Instance
+            ref={ref}
+            color={isSelected ? editor.colors.selected : editor.colors.default}
+            position={[position_x, position_y, position_z]} />
     )
 })
 
-function GeometryEditEdges({ }: GeometryEditFeaturesProps) {
+function GeometryEditEdges({ /* helper, editor */ }: GeometryEditFeaturesProps) {
     //TODO: display wireframe of edges
+    // before implementing this, the mesh class (in mesh-3d-utils, not threejs mesh)
+    // should be updated to include edges
 
     return (
         <group>
@@ -150,17 +159,28 @@ function GeometryEditEdges({ }: GeometryEditFeaturesProps) {
     )
 }
 
-function GeometryEditFaces({ helper }: GeometryEditFeaturesProps) {
+function GeometryEditFaces({ helper, editor }: GeometryEditFeaturesProps) {
+    //TODO: implement instances similarly
+    /**
+     * When a face is not selected, we just render the instance for the center of the face,
+     * and it's rotated to be facing outward, that is, facing toward the direction of the normal of the face.
+     * That code is already currently implemented. Though, when the face is selected,
+     * we keep that instance that renders a normal, we keep that like usual, though we also return a new child,
+     * a regular react three object, that is a mesh showing only the face that it represents.
+     * This lets that selected face itself be represented by a threejs object3D.
+     * When the face is unselected, the helper object is not returned from <GeometryEditFace>
+     */
+
     return (
         <group>
             {Array.from({ length: helper.meshRoot.mesh.faces.indicesOffset1.length }, (_, i) => (
-                <GeometryEditFace key={i} helper={helper} index={i} />
+                <GeometryEditFace key={i} helper={helper} editor={editor} index={i} />
             ))}
         </group>
     )
 }
 
-const GeometryEditFace = memo(({ helper, index }: GeometryEditFeatureProps) => {
+const GeometryEditFace = memo(({ helper, index, editor }: GeometryEditFeatureProps) => {
     // handle in center of face for transforming
     const ref = useRef<THREE.Mesh|undefined>(undefined)
     
