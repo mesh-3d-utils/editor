@@ -270,7 +270,7 @@ function useIslands(objects: ObservableList<Object3D>) {
             if (index !== -1)
                 islands.splice(index, 1, ...objectsNowIslands)
         }
-    }, [], 'islands')
+    }, [])
 
     return islands
 }

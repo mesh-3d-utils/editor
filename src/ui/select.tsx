@@ -9,6 +9,7 @@ import {
     useMediaQuery,
     ToggleButton,
     ToggleButtonGroup,
+    SelectChangeEvent,
   } from '@mui/material'
 
 export interface SelectMenuItem {
@@ -31,7 +32,7 @@ export const Select = memo(({ items, value, onChange }: SelectProps) => {
     // isMobile will be true if the screen width is less than the 'sm' breakpoint (600px)
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
-    const handleChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleChange = useCallback((event: SelectChangeEvent<string>) => {
         setSelectedItem(event.target.value);
         onChange?.(event.target.value);
     }, [setSelectedItem]);

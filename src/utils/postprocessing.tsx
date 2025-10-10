@@ -45,6 +45,6 @@ export function usePostProcessingEffects(...children: ReactNode[]) {
 }
 
 export function PostProcessingEffect({ children }: PropsWithChildren) {
-    // usePostProcessingEffects(children)
+    usePostProcessingEffects(children)
     return null
 }

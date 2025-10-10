@@ -1,10 +1,10 @@
 import { ObservableList } from "@code-essentials/utils"
-import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from "react"
+import { createContext, PropsWithChildren, useContext, useMemo, useRef, useState } from "react"
 import { Mesh, Object3D, Color } from "three"
 import { Toolbar } from "../ui/toolbar.js"
 import { Select } from "../ui/select.js"
 import { useThree } from "@react-three/fiber"
-import { dispatchObjectEvent, useObjectInteractionEvent } from "./interactive.js"
+import { dispatchObjectEvent, InteractiveObjectEventHandlers, ThreeFiberEventHandlers, useObjectInteractionEvent } from "./interactive.js"
 import { Outline, OutlineProps } from '@react-three/postprocessing';
 import { memo } from "react"
 import { PostProcessingEffect } from "../utils/postprocessing.js"
@@ -122,7 +122,9 @@ export function SelectTool({ mode }: SelectToolProps) {
     const selectionInfo = useSelectionInfo()
     const scene = useThree(s => s.scene)
 
-    useObjectInteractionEvent(scene, 'onPointerMissed', event => {
+    useObjectInteractionEvent(scene, 'onPointerMissed' as keyof InteractiveObjectEventHandlers, (e: unknown) => {
+        const event = e as Parameters<ThreeFiberEventHandlers['onPointerMissed']>[0]
+
         if (selectionInfo.disabled)
             return
 

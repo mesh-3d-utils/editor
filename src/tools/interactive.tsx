@@ -8,9 +8,11 @@ export interface InteractiveObject3D {
     }
 }
 
-type ThreeFiberEventHandlers = Required<Omit<EventHandlers, 'onPointerMissed'>>
+export type ThreeFiberEventHandlers = Required<EventHandlers>
 
-export interface InteractiveObjectEventHandlers extends ThreeFiberEventHandlers {
+export type ThreeFiberObject3DEventHandlers = Omit<ThreeFiberEventHandlers, 'onPointerMissed'>
+
+export interface InteractiveObjectEventHandlers extends ThreeFiberObject3DEventHandlers {
 }
 
 export type EventArgs = {
@@ -55,9 +57,9 @@ export function useInteractionEvent<EventName extends keyof InteractiveObjectEve
  * 
  * virtual object is made child of real object and event is dispatched to it
  */
-export type VirtualObjectFactory = <EventName extends keyof ThreeFiberEventHandlers>(eventName: EventName, ...args: EventArgs[EventName]) => Object3D | null | undefined
+export type VirtualObjectFactory = <EventName extends keyof ThreeFiberObject3DEventHandlers>(eventName: EventName, ...args: EventArgs[EventName]) => Object3D | null | undefined
 
-function eventInterceptor<EventName extends keyof ThreeFiberEventHandlers>(eventName: EventName, virtualObjectFactory: VirtualObjectFactory) {
+function eventInterceptor<EventName extends keyof ThreeFiberObject3DEventHandlers>(eventName: EventName, virtualObjectFactory: VirtualObjectFactory) {
     return useCallback((...args: EventArgs[EventName]) => {
         const object = virtualObjectFactory(eventName, ...args)
         if (object) {
@@ -71,9 +73,9 @@ export function useVirtualObject(virtualObjectFactory: VirtualObjectFactory) {
 
     const listeners = {
         onPointerMove: eventInterceptor('onPointerMove', virtualObjectFactory),
-    } as const satisfies Partial<ThreeFiberEventHandlers>
+    } as const satisfies Partial<ThreeFiberObject3DEventHandlers>
 
-    return listeners as Pick<ThreeFiberEventHandlers, keyof typeof listeners>
+    return listeners as Pick<ThreeFiberObject3DEventHandlers, keyof typeof listeners>
 }
 
 export const InteractiveCanvas = forwardRef<HTMLCanvasElement, CanvasProps>((props, ref) => {
