@@ -1,6 +1,6 @@
 import { Object3D, Scene } from "three"
 import { Canvas, CanvasProps, EventHandlers, useThree } from "@react-three/fiber"
-import { DependencyList, forwardRef, RefObject, useEffect, useMemo, useRef } from "react"
+import { DependencyList, forwardRef, RefObject, useCallback, useEffect, useMemo, useRef } from "react"
 
 export interface InteractiveObject3D {
     listeners?: {
@@ -8,7 +8,7 @@ export interface InteractiveObject3D {
     }
 }
 
-type ThreeFiberEventHandlers = Required<EventHandlers>
+type ThreeFiberEventHandlers = Required<Omit<EventHandlers, 'onPointerMissed'>>
 
 export interface InteractiveObjectEventHandlers extends ThreeFiberEventHandlers {
 }
@@ -50,11 +50,37 @@ export function useInteractionEvent<EventName extends keyof InteractiveObjectEve
     }, [ref, listener, ...(deps ?? [])])
 }
 
+/**
+ * responds to an event, to make a virtual object if fitting
+ * 
+ * virtual object is made child of real object and event is dispatched to it
+ */
+export type VirtualObjectFactory = <EventName extends keyof ThreeFiberEventHandlers>(eventName: EventName, ...args: EventArgs[EventName]) => Object3D | null | undefined
+
+function eventInterceptor<EventName extends keyof ThreeFiberEventHandlers>(eventName: EventName, virtualObjectFactory: VirtualObjectFactory) {
+    return useCallback((...args: EventArgs[EventName]) => {
+        const object = virtualObjectFactory(eventName, ...args)
+        if (object) {
+            args[0].object = object
+        }
+    }, [virtualObjectFactory])
+}
+
+export function useVirtualObject(virtualObjectFactory: VirtualObjectFactory) {
+    
+
+    const listeners = {
+        onPointerMove: eventInterceptor('onPointerMove', virtualObjectFactory),
+    } as const satisfies Partial<ThreeFiberEventHandlers>
+
+    return listeners as Pick<ThreeFiberEventHandlers, keyof typeof listeners>
+}
+
 export const InteractiveCanvas = forwardRef<HTMLCanvasElement, CanvasProps>((props, ref) => {
     const sceneRoot = useRef<Scene | null>(null)
     
     const eventHandlers = useMemo(() => {
-        const eventNames: readonly (keyof ThreeFiberEventHandlers)[] = [
+        const eventNames: readonly (keyof EventHandlers)[] = [
             'onClick',
             'onContextMenu',
             'onDoubleClick',
@@ -71,11 +97,11 @@ export const InteractiveCanvas = forwardRef<HTMLCanvasElement, CanvasProps>((pro
             'onLostPointerCapture',
         ] as const
 
-        const eventHandlers: Partial<ThreeFiberEventHandlers> = {
+        const eventHandlers: Partial<EventHandlers> = {
         }
 
-        function setupEvent<EventName extends keyof ThreeFiberEventHandlers>(eventName: EventName) {
-            eventHandlers[eventName] = ((event: Parameters<ThreeFiberEventHandlers[EventName]>[0]) => {
+        function setupEvent<EventName extends keyof EventHandlers>(eventName: EventName) {
+            eventHandlers[eventName] = ((event: Parameters<Required<EventHandlers>[EventName]>[0]) => {
                 // threejs event, could be listened to by useObjectInteractionEvent
                 // the canvas is the eventObject, the interacted object is just object
                 // the scene receives every event
@@ -86,7 +112,7 @@ export const InteractiveCanvas = forwardRef<HTMLCanvasElement, CanvasProps>((pro
                         []
             
                 for (const object of [...objects, sceneRoot.current!])
-                    dispatchObjectEvent(object, eventName, event as any)
+                    dispatchObjectEvent(object, eventName as keyof InteractiveObjectEventHandlers, event as any)
             })
         }
 

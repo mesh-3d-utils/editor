@@ -17,6 +17,18 @@ export interface SelectionInfo {
     disabled?: boolean
 }
 
+// declare module "./interactive.tsx" {
+//     export interface InteractiveObjectEventHandlers {
+//         /**
+//          * Permits selecting virtual objects that didn't exist at click
+//          * 
+//          * @param object object clicked
+//          * @returns object to select/deselect, or null to not select/deselect
+//          */
+//         onObjectClick(object: Object3D, e: InteractiveObjectEventHandlers["onClick"]): Object3D | null
+//     }
+// }
+
 const selectionInfoContext = createContext<SelectionInfo | undefined>(undefined)
 
 export interface SelectionProviderProps extends PropsWithChildren {
@@ -127,7 +139,8 @@ export function SelectTool({ mode }: SelectToolProps) {
         } = event
 
         if (object instanceof Object3D) {
-            if (selectionInfo.selectableRoots.some(root => isDescendantOfOrEqual(object, root))) {
+            const selectionRoot = selectionInfo.selectableRoots.find(root => isDescendantOfOrEqual(object, root))
+            if (selectionRoot) {
                 const selection = selectionInfo.selection
                 const index = selection.indexOf(object)
                 const includes = index !== -1

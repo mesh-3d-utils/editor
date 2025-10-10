@@ -1,4 +1,4 @@
-import { GeometryMeshObject3DHelper } from '@mesh-3d-utils/core';
+import { Geometry, GeometryMeshObject3DHelper } from '@mesh-3d-utils/core';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useIsSelected, useSelection } from './select.js';
 import * as THREE from 'three';
@@ -13,17 +13,25 @@ export interface GeometryEditMode {
     face: boolean
 }
 
-export interface GeometryEditToolProps {
-    mode: GeometryEditMode
+export interface GeometryEditorConfig {
+    colors: {
+        default: THREE.Color
+        selected: THREE.Color
+    }
 }
 
-export function GeometryEditTool({ mode }: GeometryEditToolProps) {
+export interface GeometryEditToolProps {
+    mode: GeometryEditMode
+    config: GeometryEditorConfig
+}
+
+export function GeometryEditTool({ mode, config }: GeometryEditToolProps) {
     const selection = useSelection()
 
     const geometryEditComponents = selection
         .filter(obj => obj instanceof THREE.Mesh)
         .map(object => (
-            <GeometryEditComponent key={object.uuid} mode={mode} object={object} />
+            <GeometryEditComponent key={object.uuid} mode={mode} object={object} config={config} />
         ))
 
     return (
@@ -64,7 +72,7 @@ export function GeometryEditControls({ }: GeometryEditControlsProps) {
 
     return (
         <>
-            <GeometryEditTool mode={mode} />
+            <GeometryEditTool mode={mode} config={config} />
             <Toolbar>
                 <MultiSelect
                     items={[
@@ -83,28 +91,31 @@ export function GeometryEditControls({ }: GeometryEditControlsProps) {
 export interface GeometryEditComponentProps {
     mode: GeometryEditMode
     object: ConstructorParameters<typeof GeometryMeshObject3DHelper>[0]
+    config: GeometryEditorConfig
 }
 
-export function GeometryEditComponent({ mode, object }: GeometryEditComponentProps) {
+export function GeometryEditComponent({ mode, object, config }: GeometryEditComponentProps) {
     const helper = useMemo(() => new GeometryMeshObject3DHelper(object), [object])
 
     return (
         <Parented parent={helper.obj}>
-            {mode.vertex && <GeometryEditVertices helper={helper} />}
-            {mode.edge && <GeometryEditEdges helper={helper} />}
-            {mode.face && <GeometryEditFaces helper={helper} />}
+            {mode.vertex && <GeometryEditVertices helper={helper} config={config} />}
+            {mode.edge && <GeometryEditEdges helper={helper} config={config} />}
+            {mode.face && <GeometryEditFaces helper={helper} config={config} />}
         </Parented>
     )
 }
 
 interface GeometryEditFeaturesProps {
     helper: GeometryMeshObject3DHelper
-    editor: {
-        colors: {
-            default: THREE.Color
-            selected: THREE.Color
-        }
-    }
+
+    /**
+     * geometry edited
+     * 
+     * geometry for helper.meshRoot
+     */
+    geometry: Geometry
+    config: GeometryEditorConfig
 }
 
 interface GeometryEditFeatureProps extends GeometryEditFeaturesProps {
@@ -112,7 +123,7 @@ interface GeometryEditFeatureProps extends GeometryEditFeaturesProps {
     index: number
 }
 
-function GeometryEditVertices({ helper, editor }: GeometryEditFeaturesProps) {
+function GeometryEditVertices({ geometry, helper, config }: GeometryEditFeaturesProps) {
     // TODO: transition to using THREE.InstancedMesh directly
     // though for relatively small meshes prototyping could work with Instances
 
@@ -123,14 +134,14 @@ function GeometryEditVertices({ helper, editor }: GeometryEditFeaturesProps) {
         <Instances>
             <sphereGeometry args={[0.1]} />
             <meshStandardMaterial />
-            {Array.from({ length: helper.meshRoot.mesh.vertices.x.length }, (_, i) => (
-                <GeometryEditVertex key={i} helper={helper} editor={editor} index={i} />
+            {Array.from({ length: geometry.mesh.vertices.x.length}, (_, i) => (
+                <GeometryEditVertex key={i} helper={helper} config={config} index={i} />
             ))}
         </Instances>
     )
 }
 
-const GeometryEditVertex = memo(({ helper, index, editor }: GeometryEditFeatureProps) => {
+const GeometryEditVertex = memo(({ helper, index, config }: GeometryEditFeatureProps) => {
     const ref = useRef<THREE.Mesh | undefined>(undefined)
     const position_x = helper.meshRoot.mesh.vertices.x[index]!
     const position_y = helper.meshRoot.mesh.vertices.y[index]!
@@ -140,7 +151,7 @@ const GeometryEditVertex = memo(({ helper, index, editor }: GeometryEditFeatureP
     return (
         <Instance
             ref={ref}
-            color={isSelected ? editor.colors.selected : editor.colors.default}
+            color={isSelected ? config.colors.selected : config.colors.default}
             position={[position_x, position_y, position_z]} />
     )
 })
@@ -159,7 +170,7 @@ function GeometryEditEdges({ /* helper, editor */ }: GeometryEditFeaturesProps) 
     )
 }
 
-function GeometryEditFaces({ helper, editor }: GeometryEditFeaturesProps) {
+function GeometryEditFaces({ helper, config }: GeometryEditFeaturesProps) {
     //TODO: implement instances similarly
     /**
      * When a face is not selected, we just render the instance for the center of the face,
@@ -174,13 +185,13 @@ function GeometryEditFaces({ helper, editor }: GeometryEditFeaturesProps) {
     return (
         <group>
             {Array.from({ length: helper.meshRoot.mesh.faces.indicesOffset1.length }, (_, i) => (
-                <GeometryEditFace key={i} helper={helper} editor={editor} index={i} />
+                <GeometryEditFace key={i} helper={helper} config={config} index={i} />
             ))}
         </group>
     )
 }
 
-const GeometryEditFace = memo(({ helper, index, editor }: GeometryEditFeatureProps) => {
+const GeometryEditFace = memo(({ helper, index, config }: GeometryEditFeatureProps) => {
     // handle in center of face for transforming
     const ref = useRef<THREE.Mesh|undefined>(undefined)
     
@@ -242,7 +253,7 @@ const GeometryEditFace = memo(({ helper, index, editor }: GeometryEditFeaturePro
     return (
         <mesh ref={ref} position={face.center} rotation={face.rotation}>
             <boxGeometry args={[0.1, 0.1, 0.01]} />
-            <meshStandardMaterial color={isSelected ? "blue" : "black"} />
+            <meshStandardMaterial color={isSelected ? config.colors.selected : config.colors.default} />
         </mesh>
     )
 })
