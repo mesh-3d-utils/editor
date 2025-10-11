@@ -1,5 +1,5 @@
 import { ObservableList } from "@code-essentials/utils"
-import { createContext, PropsWithChildren, useContext, useMemo, useRef, useState } from "react"
+import { createContext, PropsWithChildren, RefObject, useContext, useMemo, useRef, useState } from "react"
 import { Mesh, Object3D, Color } from "three"
 import { Toolbar } from "../ui/toolbar.js"
 import { Select } from "../ui/select.js"
@@ -8,13 +8,36 @@ import { dispatchObjectEvent, InteractiveObjectEventHandlers, ThreeFiberEventHan
 import { Outline, OutlineProps } from '@react-three/postprocessing';
 import { memo } from "react"
 import { PostProcessingEffect } from "../utils/postprocessing.js"
-import { isDescendantOfOrEqual, Parented } from "../utils/parented.js"
-import { useItemEffect, useMembershipRef, useObservableList } from "../utils/observable-list.js"
+import { deepestChild, isDescendantOfOrEqual, Parented } from "../utils/parented.js"
+import { useItemEffect, useMembership, useObservableList } from "../utils/observable-list.js"
+import { useRefResolved } from "../utils/ref.js"
 
 export interface SelectionInfo {
     readonly selection: ObservableList<Object3D>
-    readonly selectableRoots: ObservableList<Object3D>
+    readonly selectableRoots: ObservableList<SelectionRoot>
     disabled?: boolean
+}
+
+export interface SelectionRoot {
+    readonly container: Object3D
+
+    /**
+     * if true, when objects inside this selectable are selected/deselected,
+     * it won't affect the selection outside in the object hierarchy
+     */
+    isolateSelections: boolean
+}
+
+
+export function isolatingSelectionRoot(selectionRoots: SelectionRoot[], selectionRootNode: Object3D | null) {
+    if (!selectionRootNode)
+        return
+    
+    const selectionRootNodeSelection = selectionRoots.find(root => root.container === selectionRootNode)
+    if (selectionRootNodeSelection?.isolateSelections)
+        return selectionRootNodeSelection.container
+    
+    return isolatingSelectionRoot(selectionRoots, selectionRootNode.parent)
 }
 
 // declare module "./interactive.tsx" {
@@ -23,9 +46,9 @@ export interface SelectionInfo {
 //          * Permits selecting virtual objects that didn't exist at click
 //          * 
 //          * @param object object clicked
-//          * @returns object to select/deselect, or null to not select/deselect
+//          * @returns objects to select/deselect
 //          */
-//         onObjectClick(object: Object3D, e: InteractiveObjectEventHandlers["onClick"]): Object3D | null
+//         onObjectClick(object: Object3D, e: InteractiveObjectEventHandlers["onClick"]): Object3D[]
 //     }
 // }
 
@@ -37,7 +60,7 @@ export interface SelectionProviderProps extends PropsWithChildren {
 export function SelectionProvider({ children }: SelectionProviderProps) {
     const selectionInfo = useMemo<SelectionInfo>(() => ({
         selection: new ObservableList<Object3D>(),
-        selectableRoots: new ObservableList<Object3D>(),
+        selectableRoots: new ObservableList<SelectionRoot>(),
         selectionMode: SelectionMode.replace,
     }), [])
 
@@ -92,16 +115,32 @@ function useRaiseSelectionEvents() {
 }
 
 export interface SelectableProps extends PropsWithChildren {
+    isolateSelections?: boolean
 }
 
-export function Selectable({ children }: SelectableProps) {
-    const ref = useRef<Object3D|null>(null)
+function useSelectionInfoRef({
+    containerRef,
+    isolateSelections,
+}: {
+    containerRef: RefObject<Object3D|null>,
+    isolateSelections: boolean
+}) {
     const selectionInfo = useSelectionInfo()
+    const container = useRefResolved(containerRef)
+    const selectionRoot = useMemo<SelectionRoot>(() => ({
+        container: container!,
+        isolateSelections,
+    }), [container, isolateSelections])
 
-    useMembershipRef(selectionInfo.selectableRoots, ref)
+    useMembership(selectionInfo.selectableRoots, selectionRoot)
+}
+
+export function Selectable({ children, isolateSelections = false }: SelectableProps) {
+    const containerRef = useRef<Object3D | null>(null)
+    useSelectionInfoRef({ containerRef, isolateSelections })
 
     return (
-        <group ref={ref}>
+        <group ref={containerRef} name="selection-root">
             {children}
         </group>
     )
@@ -141,21 +180,34 @@ export function SelectTool({ mode }: SelectToolProps) {
         } = event
 
         if (object instanceof Object3D) {
-            const selectionRoot = selectionInfo.selectableRoots.find(root => isDescendantOfOrEqual(object, root))
+            // closest selection root
+            const selectionRoots = selectionInfo.selectableRoots.filter(root => isDescendantOfOrEqual(object, root.container))
+            const selectionRoot = deepestChild(selectionRoots.map(root => root.container))
+
             if (selectionRoot) {
                 const selection = selectionInfo.selection
                 const index = selection.indexOf(object)
                 const includes = index !== -1
-
-                //TODO: does react development mode twice fire event?
-                // is this handled by three fiber?
-
+                
+                const isolatingSelectionRoot_ = isolatingSelectionRoot(selectionInfo.selectableRoots, selectionRoot)
+                const isolatedSelection = isolatingSelectionRoot_ ?
+                    selection.filter(object => !isDescendantOfOrEqual(object, isolatingSelectionRoot_)) :
+                    []
+                
                 switch (mode) {
                     case SelectionMode.replace:
-                        if (!(selection.length === 1 && selection[0] === object))
-                            selectionInfo.selection.splice(0, selectionInfo.selection.length, object)
+                        for (let i = 0; i < selection.length; i++)
+                            if (i !== index && !isolatedSelection.includes(selection[i]!))
+                                selection.splice(i--, 1)
+                        
+                        if (!includes)
+                            selection.push(object)
+
                         break
                     case SelectionMode.toggle:
+                        // react development mode fires event twice
+                        // unhandled currently
+
                         if (includes)
                             selection.splice(index, 1)
                         else

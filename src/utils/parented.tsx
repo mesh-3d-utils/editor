@@ -42,19 +42,33 @@ export function Parented({ children, parent }: ParentedProps) {
     return resolvedParent ? createPortal(children, resolvedParent) : null
 }
 
-export function isDescendantOf(object: Object3D, root: Object3D): boolean {
+export function isDescendantOf(object: Object3D, root: Object3D, separators: Object3D[] = []): boolean {
     if (object.parent)
-        return isDescendantOfOrEqual(object.parent, root)
+        return isDescendantOfOrEqual(object.parent, root, separators)
     
     return false
 }
 
-export function isDescendantOfOrEqual(object: Object3D, root: Object3D): boolean {
+export function isDescendantOfOrEqual(object: Object3D, root: Object3D, separators: Object3D[] = []): boolean {
+    if (separators.includes(object))
+        return false
+
     if (object === root)
         return true
     
     if (object.parent)
-        return isDescendantOfOrEqual(object.parent, root)
+        return isDescendantOfOrEqual(object.parent, root, separators)
     
     return false
+}
+
+export function deepestChild(objects: Object3D[]): Object3D | null {
+    objects = [...objects]
+    for (let i = 0; i < objects.length; i++) {
+        const o = objects[i]
+        if (objects.some(child => isDescendantOf(child, o)))
+            objects.splice(i--, 1)
+    }
+
+    return objects[0]
 }

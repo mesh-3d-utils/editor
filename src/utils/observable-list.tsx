@@ -1,5 +1,5 @@
 import { ObservableList } from "@code-essentials/utils"
-import { RefObject, useEffect, useMemo, useRef, useState } from "react"
+import { DependencyList, RefObject, useEffect, useMemo, useRef, useState } from "react"
 import { useRefResolved } from "./ref"
 
 export function useObservableList<T>(list: ObservableList<T>) {
@@ -18,6 +18,22 @@ export function useObservableList<T>(list: ObservableList<T>) {
     }, [list])
 
     return list_
+}
+
+export function useObservableListMapped<T1, T2>(src: ObservableList<T1>, map: (item: T1) => T2, deps: DependencyList = []) {
+    const res = useMemo(() => new ObservableList<T2>(), [])
+
+    useItemEffect(src, item => {
+        const mapped = map(item)
+        res.push(mapped)
+        return () => {
+            const index = res.indexOf(mapped)
+            if (index !== -1)
+                res.splice(index, 1)
+        }
+    }, [src, map, ...deps])
+
+    return res
 }
 
 const start = Symbol()

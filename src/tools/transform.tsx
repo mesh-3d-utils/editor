@@ -5,7 +5,7 @@ import { createContext, DependencyList, memo, PropsWithChildren, useCallback, us
 import { MultiSelect, Select } from '../ui/select.js'
 import { Toolbar } from '../ui/toolbar.js'
 import { isDescendantOf, Parented } from '../utils/parented.js'
-import { useItemEffect, useObservableList } from '../utils/observable-list.js'
+import { useItemEffect, useObservableList, useObservableListMapped } from '../utils/observable-list.js'
 import { useThree } from '@react-three/fiber'
 import { ObservableList } from '@code-essentials/utils'
 import { Checkbox } from '@mui/material'
@@ -226,25 +226,25 @@ const TransformTool_average = memo((props: TransformToolProps) => {
 export interface EditorTransformControlsProps {
 }
 
-function computeIslands(objects: ObservableList<Object3D>): Object3D[] {
+function computeIslands(objects: ObservableList<Object3D>, separators: Object3D[]): Object3D[] {
     const islands: Object3D[] = []
     
     for (const object of objects)
-        if (!islands.some(island => isDescendantOf(object, island)))
+        if (!islands.some(island => isDescendantOf(object, island, separators)))
             islands.push(object)
     
     return islands
 }
 
-function useIslands(objects: ObservableList<Object3D>) {
-    const islands = useMemo(() => new ObservableList<Object3D>(...computeIslands(objects)), [])
+function useIslands(objects: ObservableList<Object3D>, separators: Object3D[] = []) {
+    const islands = useMemo(() => new ObservableList<Object3D>(...computeIslands(objects, separators)), [])
     
     useItemEffect(objects, object => {
         if (islands.includes(object))
             return
 
         // if this object is not a descendant of any other island, it's an island
-        if (islands.some(island => isDescendantOf(object, island)))
+        if (islands.some(island => isDescendantOf(object, island, separators)))
             return
 
         islands.push(object)
@@ -252,17 +252,17 @@ function useIslands(objects: ObservableList<Object3D>) {
         // remove islands that are no longer islands
         for (let i = 0; i < islands.length; i++) {
             const island = islands[i]!
-            if (isDescendantOf(island, object))
+            if (isDescendantOf(island, object, separators))
                 islands.splice(i--, 1)
         }
 
         return () => {
             // objects eligible for island d/t item object removed
-            const objectsNowIslands = objects.filter(child => isDescendantOf(child, object))
+            const objectsNowIslands = objects.filter(child => isDescendantOf(child, object, separators))
             // remove objects that are children of another object in objectsNowIslands
             for (let i = 0; i < objectsNowIslands.length; i++) {
                 const objectNowIsland = objectsNowIslands[i]
-                if (objectsNowIslands.some(otherObjNowIsland => isDescendantOf(objectNowIsland, otherObjNowIsland)))
+                if (objectsNowIslands.some(otherObjNowIsland => isDescendantOf(objectNowIsland, otherObjNowIsland, separators)))
                     objectsNowIslands.splice(i--, 1)
             }
 
@@ -270,14 +270,15 @@ function useIslands(objects: ObservableList<Object3D>) {
             if (index !== -1)
                 islands.splice(index, 1, ...objectsNowIslands)
         }
-    }, [])
+    }, [separators])
 
     return islands
 }
 
 function useTransformableObjects(islandTransform: boolean) {
-    const selection = useSelectionInfo().selection
-    const islands = useIslands(selection)
+    const { selection, selectableRoots } = useSelectionInfo()
+    const separators = useObservableListMapped(selectableRoots, ({ container }) => container)
+    const islands = useIslands(selection, separators)
 
     return islandTransform ? islands : selection
 }
