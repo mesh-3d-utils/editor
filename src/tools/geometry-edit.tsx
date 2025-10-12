@@ -1,12 +1,13 @@
 import { compileGeometryMapsFrom, Geometry, GeometryMeshObject3DHelper, MeshGeometry } from '@mesh-3d-utils/core';
-import { DependencyList, EffectCallback, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DependencyList, EffectCallback, memo, RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Selectable, useIsSelected, useSelection } from './select.js';
 import * as THREE from 'three';
 import { Toolbar } from '../ui/toolbar.js';
 import { MultiSelect } from '../ui/select.js';
-import { Parented } from '../utils/parented.js';
+import { isDescendantOf, Parented } from '../utils/parented.js';
 import { Instance, Instances } from '@react-three/drei';
-import { useEvent } from '../utils/object3D.js';
+import { useEvent } from '../utils/interactive.js';
+import { Object3D } from 'three';
 
 export interface GeometryEditMode {
     vertex: boolean
@@ -32,7 +33,12 @@ export function GeometryEditTool({ mode, config }: GeometryEditToolProps) {
     const geometryEditComponents = selection
         .filter(obj => obj instanceof THREE.Mesh)
         .map(object => (
-            <GeometryEditComponent key={object.uuid} mode={mode} object={object} config={config} />
+            <GeometryEditComponent
+                key={object.uuid}
+                mode={mode}
+                object={object}
+                config={config}
+            />
         ))
 
     return (
@@ -106,7 +112,7 @@ export interface GeometryEditComponentProps {
 export function GeometryEditComponent({ mode, object, config }: GeometryEditComponentProps) {
     const helper = useMemo(() => new GeometryMeshObject3DHelper(object), [object])
     
-    const geometry = useMemo<GeometryEditInfo>(() => ({
+    const info = useMemo<GeometryEditInfo>(() => ({
         geometry: {
             map: compileGeometryMapsFrom(helper.geometry, helper.meshRoot),
             edit: helper.meshRoot,
@@ -114,14 +120,25 @@ export function GeometryEditComponent({ mode, object, config }: GeometryEditComp
         },
         helper,
         config,
+        transformingObjects: [],
     }), [helper])
+
+    useEvent(info.helper.obj, 'onTransformStart', useCallback((e) => {
+        info.transformingObjects.push(e.target)
+    }, [info]))
+
+    useEvent(info.helper.obj, 'onTransformComplete', useCallback((e) => {
+        const index = info.transformingObjects.indexOf(e.target)
+        if (index !== -1)
+            info.transformingObjects.splice(index, 1)
+    }, [info]))
 
     return (
         <Parented parent={object}>
             <Selectable isolateSelections>
-                {mode.vertex && <GeometryEditVertices info={geometry} />}
-                {mode.edge && <GeometryEditEdges info={geometry} />}
-                {mode.face && <GeometryEditFaces info={geometry} />}
+                {mode.vertex && <GeometryEditVertices info={info} />}
+                {mode.edge && <GeometryEditEdges info={info} />}
+                {mode.face && <GeometryEditFaces info={info} />}
             </Selectable>
         </Parented>
     )
@@ -138,10 +155,24 @@ export interface GeometryEditInfo {
     geometry: GeometryEditDisplay
     helper: GeometryMeshObject3DHelper
     config: GeometryEditorConfig
+    transformingObjects: Object3D[]
 }
 
-export function useUpdateWithGeometry(info: GeometryEditInfo, callback: EffectCallback, deps: DependencyList = []) {
-    useEvent(info.helper.obj, 'geometryUpdate', useCallback(callback, deps))
+export function useUpdateWithGeometry(
+        info: GeometryEditInfo,
+        callback: EffectCallback,
+        deps: DependencyList = [],
+        disableIfTransforming?: RefObject<Object3D|null>,
+    ) {
+    const callback1 = useCallback(() => {
+        if (disableIfTransforming?.current &&
+            info.transformingObjects.includes(disableIfTransforming.current))
+            return
+        
+        callback()
+    }, [callback, disableIfTransforming, info.transformingObjects, ...deps])
+
+    useEvent(info.helper.obj, 'geometryUpdate', callback1)
 }
 
 interface GeometryEditFeaturesProps {
@@ -160,8 +191,14 @@ function GeometryEditVertices({ info }: GeometryEditFeaturesProps) {
     //TODO: show vertices as screen-space sized
     // custom vertex shader could be required for this
 
+    const ref = useRef<THREE.InstancedMesh | null>(null)
+    useEvent(info.helper.obj, 'onTransform', useCallback((e) => {
+        if (ref.current && isDescendantOf(e.target, ref.current))
+            info.helper.update()
+    }, [ref, info]))
+
     return (
-        <Instances>
+        <Instances ref={ref}>
             <sphereGeometry args={[0.1]} />
             <meshBasicMaterial vertexColors />
             {Array.from({ length: info.geometry.edit.map.vertex.lengths.self }, (_, i) => (
@@ -172,7 +209,7 @@ function GeometryEditVertices({ info }: GeometryEditFeaturesProps) {
 }
 
 const GeometryEditVertex = memo(({ info, index }: GeometryEditFeatureProps) => {
-    const ref = useRef<THREE.Mesh | undefined>(undefined)
+    const ref = useRef<THREE.Mesh | null>(null)
     
     const indices_display = info.geometry.map.vertex.fromBase(index).indices
     if (indices_display.length === 0)
@@ -190,7 +227,11 @@ const GeometryEditVertex = memo(({ info, index }: GeometryEditFeatureProps) => {
     }, [info.geometry.display, index_display])
 
     const position = calculatePosition()
-    useUpdateWithGeometry(info, () => void calculatePosition(), [])
+    // when geometry update is mirrored immediately,
+    // helper is not able to move because it's always updated
+    // mirroring should be disabled while geometry is edited
+    useUpdateWithGeometry(info, () => void calculatePosition(), [], ref)
+    // useInteractionEvent(ref, '')
 
     // instance object3D used so that raycasting and select tool interact with it
 
@@ -217,17 +258,6 @@ function GeometryEditEdges({ }: GeometryEditFeaturesProps) {
 }
 
 function GeometryEditFaces({ info }: GeometryEditFeaturesProps) {
-    //TODO: implement instances similarly
-    /**
-     * When a face is not selected, we just render the instance for the center of the face,
-     * and it's rotated to be facing outward, that is, facing toward the direction of the normal of the face.
-     * That code is already currently implemented. Though, when the face is selected,
-     * we keep that instance that renders a normal, we keep that like usual, though we also return a new child,
-     * a regular react three object, that is a mesh showing only the face that it represents.
-     * This lets that selected face itself be represented by a threejs object3D.
-     * When the face is unselected, the helper object is not returned from <GeometryEditFace>
-     */
-
     return (
         <group name="geometry-edit-faces">
             {Array.from({ length: info.geometry.edit.map.face.lengths.self }, (_, i) => (
@@ -272,7 +302,11 @@ const GeometryEditFace = memo(({ info, index }: GeometryEditFeatureProps) => {
     type FaceInfo = typeof face
     const updateIndices = useCallback((face: FaceInfo) => {
         const display_indices = face.faces_display.indices
-        
+        // if indices are perfect slice from complete mesh,
+        // then display object geometry's indices attributes
+        // can be directly applied to face bufferGeometry
+        // and setDrawRange() selects only this face
+
         // Ensure index buffer exists and is large enough
         const indexAttr = bufferGeometry.getIndex() as THREE.BufferAttribute | null;
         const requiredIndexLen = display_indices.length;

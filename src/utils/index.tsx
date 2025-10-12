@@ -1,5 +1,5 @@
-export * from './ref.jsx'
+export * from './obj.js'
 export * from './observable-list.jsx'
 export * from './parented.jsx'
 export * from './postprocessing.jsx'
-export * from './object3D.jsx'
+export * from './interactive.jsx'

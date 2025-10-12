@@ -1,12 +1,12 @@
 import { OrbitControls, OrbitControlsProps } from "./orbit.js"
 import { SelectControls, SelectControlsProps } from "./select.js"
-import { EditorTransformControls, EditorTransformControlsProps } from "./transform.js"
+import { TransformControls, TransformControlsProps } from "./transform.js"
 import { GeometryEditControls, GeometryEditControlsProps } from "./geometry-edit.js"
 
 export interface EditorControlsProps {
     orbit?: OrbitControlsProps
     select?: SelectControlsProps
-    transform?: EditorTransformControlsProps
+    transform?: TransformControlsProps
     geometryEdit?: GeometryEditControlsProps
 }
 
@@ -20,7 +20,7 @@ export function EditorControls({
         <>
             <OrbitControls {...orbit} />
             <SelectControls {...select} />
-            <EditorTransformControls {...transform} />
+            <TransformControls {...transform} />
             <GeometryEditControls {...geometryEdit} />
         </>
     )

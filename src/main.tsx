@@ -4,9 +4,14 @@ import { CssBaseline, ThemeProvider, createTheme } from '@mui/material'
 import { useRef } from 'react'
 import { Object3D } from 'three'
 import { Parented } from './utils/parented.js'
+import { useEvent } from './utils/interactive.js'
 
 function Scene() {
     const box = useRef<Object3D|null>(null)
+
+    useEvent(box, 'onClick' as any, e => {
+        console.log(e)
+    })
 
     return (
         <>

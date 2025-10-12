@@ -1,4 +1,3 @@
-export * from './interactive.js'
 export * from './select.js'
 export * from './transform.js'
 export * from './orbit.js'

@@ -1,6 +1,6 @@
 import { ObservableList } from "@code-essentials/utils"
 import { DependencyList, RefObject, useEffect, useMemo, useRef, useState } from "react"
-import { useRefResolved } from "./ref"
+import { useRefResolved } from "./obj"
 
 export function useObservableList<T>(list: ObservableList<T>) {
     const [list_, setList_] = useState(list.slice())
@@ -37,7 +37,7 @@ export function useObservableListMapped<T1, T2>(src: ObservableList<T1>, map: (i
 }
 
 const start = Symbol()
-export function useMembership<T>(list: ObservableList<T>, ...members: (T | undefined | null)[]) {
+export function useMembership<T>(list: T[], ...members: (T | undefined | null)[]) {
     const insertAfter = useRef<T | typeof start | undefined>(undefined)
 
     useEffect(() => {
@@ -74,17 +74,49 @@ export function useMembership<T>(list: ObservableList<T>, ...members: (T | undef
     }, [list, ...members])
 }
 
-export function useMembershipRef<T>(list: ObservableList<T>, memberRef: RefObject<T | undefined | null>) {
+export function useMembershipRef<T>(list: T[], memberRef: RefObject<T | undefined | null>) {
     const member = useRefResolved(memberRef)
     useMembership(list, member)
 }
 
+
+export function useObservableSubset<T>(list: ObservableList<T> | undefined, members: ObservableList<T>) {
+    useItemEffect(members, member => {
+        if (!list) return
+
+        const index = list.indexOf(member)
+        if (index === -1)
+            list.push(member)
+
+        return () => {
+            const index = list.indexOf(member)
+            if (index !== -1)
+                list.splice(index, 1)
+        }
+    }, [list, members])
+
+    useItemEffect(list, item => {
+        const index = members.indexOf(item)
+        if (index === -1)
+            members.push(item)
+
+        return () => {
+            const index = members.indexOf(item)
+            if (index !== -1)
+                members.splice(index, 1)
+        }
+    }, [list, members])
+}
+
 export type Destructor = () => void
 
-export function useItemEffect<T>(list: ObservableList<T>, callback: (item: T) => void | Destructor, deps?: any[]) {
+export function useItemEffect<T>(list: ObservableList<T> | undefined, callback: (item: T) => void | Destructor, deps?: any[]) {
     const destructors = useMemo(() => new Map<T, Destructor[]>(), [])
 
     useEffect(() => {
+        if (!list)
+            return
+
         const onInsert = (item: T) => {
             const res = callback(item)
             if (res) {

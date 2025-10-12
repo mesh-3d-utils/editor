@@ -1,8 +1,8 @@
 import { ReactNode } from "react";
-import { EditorControls, EditorControlsProps, Selectable, SelectionProvider, TransformInfoProvider } from "./tools/index.js";
+import { EditorControls, EditorControlsProps, Selectable, SelectControlsInfoProvider } from "./tools/index.js";
 import { EditorUI, EditorUIProps } from "./ui/editor.js";
 import { OverlaysProvider } from "./ui/index.js";
-import { InteractiveCanvas } from "./tools/interactive.jsx";
+import { InteractiveCanvas } from "./utils/interactive.js";
 import { Composed } from "./utils/postprocessing.js";
 
 export interface EditableProps {
@@ -13,14 +13,12 @@ export interface EditableProps {
 export function Editable({ scene, controls }: EditableProps) {
     return (
         <>
-            <TransformInfoProvider>
-                <SelectionProvider>
-                    <Selectable>
-                        {scene}
-                    </Selectable>
-                    <EditorControls {...controls} />
-                </SelectionProvider>
-            </TransformInfoProvider>
+            <SelectControlsInfoProvider>
+                <Selectable>
+                    {scene}
+                </Selectable>
+                <EditorControls {...controls} />
+            </SelectControlsInfoProvider>
         </>
     )
 }

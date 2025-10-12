@@ -1,149 +1,238 @@
 import { ObservableList } from "@code-essentials/utils"
-import { createContext, PropsWithChildren, RefObject, useContext, useMemo, useRef, useState } from "react"
+import { createContext, PropsWithChildren, RefObject, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { Mesh, Object3D, Color } from "three"
 import { Toolbar } from "../ui/toolbar.js"
 import { Select } from "../ui/select.js"
 import { useThree } from "@react-three/fiber"
-import { dispatchObjectEvent, InteractiveObjectEventHandlers, ThreeFiberEventHandlers, useObjectInteractionEvent } from "./interactive.js"
 import { Outline, OutlineProps } from '@react-three/postprocessing';
 import { memo } from "react"
 import { PostProcessingEffect } from "../utils/postprocessing.js"
-import { deepestChild, isDescendantOfOrEqual, Parented } from "../utils/parented.js"
-import { useItemEffect, useMembership, useObservableList } from "../utils/observable-list.js"
-import { useRefResolved } from "../utils/ref.js"
+import { deepestChild, isDescendantOf, Parented } from "../utils/parented.js"
+import { useMembershipRef, useObservableList, useObservableSubset } from "../utils/observable-list.js"
+import { useRefResolved } from "../utils/obj.js"
+import { useEvent } from "../utils/interactive.js"
 
-export interface SelectionInfo {
+export interface SelectControlsInfo {
     readonly selection: ObservableList<Object3D>
-    readonly selectableRoots: ObservableList<SelectionRoot>
+    readonly selectables: SelectableInfo[]
+    mode: SelectionMode
     disabled?: boolean
 }
 
-export interface SelectionRoot {
-    readonly container: Object3D
+const selectContext = createContext<SelectControlsInfo | undefined>(undefined)
 
-    /**
-     * if true, when objects inside this selectable are selected/deselected,
-     * it won't affect the selection outside in the object hierarchy
-     */
-    isolateSelections: boolean
-}
-
-
-export function isolatingSelectionRoot(selectionRoots: SelectionRoot[], selectionRootNode: Object3D | null) {
-    if (!selectionRootNode)
-        return
-    
-    const selectionRootNodeSelection = selectionRoots.find(root => root.container === selectionRootNode)
-    if (selectionRootNodeSelection?.isolateSelections)
-        return selectionRootNodeSelection.container
-    
-    return isolatingSelectionRoot(selectionRoots, selectionRootNode.parent)
-}
-
-// declare module "./interactive.tsx" {
-//     export interface InteractiveObjectEventHandlers {
-//         /**
-//          * Permits selecting virtual objects that didn't exist at click
-//          * 
-//          * @param object object clicked
-//          * @returns objects to select/deselect
-//          */
-//         onObjectClick(object: Object3D, e: InteractiveObjectEventHandlers["onClick"]): Object3D[]
-//     }
-// }
-
-const selectionInfoContext = createContext<SelectionInfo | undefined>(undefined)
-
-export interface SelectionProviderProps extends PropsWithChildren {
-}
-
-export function SelectionProvider({ children }: SelectionProviderProps) {
-    const selectionInfo = useMemo<SelectionInfo>(() => ({
-        selection: new ObservableList<Object3D>(),
-        selectableRoots: new ObservableList<SelectionRoot>(),
-        selectionMode: SelectionMode.replace,
+export function SelectControlsInfoProvider({ children }: PropsWithChildren) {
+    const value = useMemo<SelectControlsInfo>(() => ({
+        selection: new ObservableList(),
+        selectables: [],
+        mode: SelectionMode.replace,
     }), [])
 
     return (
-        <selectionInfoContext.Provider value={selectionInfo}>
+        <selectContext.Provider value={value}>
             {children}
-        </selectionInfoContext.Provider>
+        </selectContext.Provider>
     )
 }
 
-export function useSelectionInfo() {
-    const selectionInfo = useContext(selectionInfoContext)
+export function useSelectControlsInfo() {
+    const selectionInfo = useContext(selectContext)
     if (!selectionInfo)
-        throw new Error('useSelectionInfo must be used within a SelectionProvider')
+        throw new Error('useSelectControlsInfo must be used within a SelectControlsInfoProvider')
     return selectionInfo
 }
 
-export function useSelection<Observe extends boolean = true>(config?: { observe?: Observe }): Observe extends true ? Object3D[] : ObservableList<Object3D> {
-    const { observe = true as Observe } = config ?? {}
-    const selectionInfo = useSelectionInfo()
-    if (observe)
-        return useObservableList(selectionInfo.selection) as ReturnType<typeof useSelection<Observe>>
-    else
-        return selectionInfo.selection
-}
-
-export function useIsSelected(object: Object3D | undefined) {
-    const selection = useSelection()
-    return object ? selection.includes(object) : false
-}
-
-declare module './interactive.js' {
-    export interface InteractiveObjectEventHandlers {
-        onSelected(): void
-        onDeselected(): void
-        onSelectedChanged(selection: boolean): void
+declare module 'three' {
+    interface Object3DEventMap {
+        onSelected: {
+            object: Object3D
+        }
+        onDeselected: {
+            object: Object3D
+        }
     }
 }
 
-function useRaiseSelectionEvents() {
-    const selection = useSelection({ observe: false })
+export interface SelectableProps {
+    readonly isolateSelections: boolean
+}
+
+export type SelectableComponentProps = Partial<SelectableProps> & PropsWithChildren
+
+export interface SelectableInfo extends SelectableProps {
+    /**
+     * root of this selectable
+     */
+    readonly container: Object3D
     
-    useItemEffect(selection, object => {
-        dispatchObjectEvent(object, 'onSelected')
-        dispatchObjectEvent(object, 'onSelectedChanged', true)
+    readonly parent?: SelectableInfo | null
 
-        return () => {
-            dispatchObjectEvent(object, 'onDeselected')
-            dispatchObjectEvent(object, 'onSelectedChanged', false)
-        }
-    }, [selection])
+    /**
+     * selection of items within this selectable
+     */
+    readonly selection: ObservableList<Object3D>
 }
 
-export interface SelectableProps extends PropsWithChildren {
-    isolateSelections?: boolean
+const selectableContext = createContext<SelectableInfo>(undefined!)
+
+
+function globalSelectable(selectable: SelectableInfo): SelectableInfo {
+    if (selectable.isolateSelections)
+        return selectable
+    else if (selectable.parent)
+        return globalSelectable(selectable.parent)
+    else
+        return selectable
 }
 
-function useSelectionInfoRef({
-    containerRef,
-    isolateSelections,
-}: {
-    containerRef: RefObject<Object3D|null>,
-    isolateSelections: boolean
-}) {
-    const selectionInfo = useSelectionInfo()
+function useLocalSelectableTo(where: Object3D | RefObject<Object3D | null>) {
+    const object = where instanceof Object3D ? where : useRefResolved(where)
+    const selectControls = useSelectControlsInfo()
+    const selectables = object ? selectControls.selectables.filter(s => isDescendantOf(object, s.container)) : []
+    if (!selectables.length)
+        throw new Error('useLocalSelectableTo: object not in any selectable')
+
+    const deepest_container = deepestChild(selectables.map(s => s.container))
+    return selectables.find(s => s.container === deepest_container)!
+}
+
+export function useLocalSelectable(where?: Object3D | RefObject<Object3D | null>) {
+    if (where)
+        return useLocalSelectableTo(where)
+
+    return useContext(selectableContext)
+}
+
+export function useGlobalSelectable(where?: Object3D | RefObject<Object3D | null>) {
+    return globalSelectable(useLocalSelectable(where))
+}
+
+export function useContainerSelectable(containerRef: RefObject<Object3D | null>, props: SelectableProps) {
+    const selectControls = useSelectControlsInfo()
     const container = useRefResolved(containerRef)
-    const selectionRoot = useMemo<SelectionRoot>(() => ({
-        container: container!,
-        isolateSelections,
-    }), [container, isolateSelections])
+    const selectableInfoRef = useRef<SelectableInfo|null>(null)
+    const selection = useMemo(() => new ObservableList<Object3D>(), [])
+    const parent = useContext(selectableContext)
+    const selectControlsInfo = useSelectControlsInfo()
 
-    useMembership(selectionInfo.selectableRoots, selectionRoot)
+    useEffect(() => {
+        if (!container)
+            return
+
+        selectableInfoRef.current = {
+            container,
+            selection,
+            ...props,
+        }
+
+        //TODO: should destructor appear here?
+        return () => {
+            selection.splice(0, selection.length)
+        }
+    }, [container, props, selection])
+
+    useMembershipRef(selectControls.selectables, selectableInfoRef)
+    useObservableSubset(parent?.selection ?? selectControlsInfo.selection, selection)
+
+    useEvent(containerRef, 'onClick', event => {
+        if (selectControls.disabled)
+            return
+
+        const { object } = event
+
+        if (!(object instanceof Object3D))
+            return
+
+        const selection_global = globalSelectable(selectableInfoRef.current!).selection
+        const selection_local = selection
+        const index_global = selection_global.indexOf(object)
+        const index_local = selection_local.indexOf(object)
+        const includes_global = index_global !== -1
+        const includes_local = index_local !== -1
+        
+        switch (selectControls.mode) {
+            case SelectionMode.replace:
+                for (let i = 0; i < selection_global.length; i++)
+                    if (i !== index_local)
+                        selection_global.splice(i--, 1)
+                
+                if (!includes_local)
+                    selection_local.push(object)
+
+                break
+            case SelectionMode.toggle:
+                // react development mode fires event twice
+                // unhandled currently
+
+                if (includes_global)
+                    selection_global.splice(index_global, 1)
+                else
+                    selection_local.push(object)
+                break
+            case SelectionMode.add:
+                if (!includes_local)
+                    selection_global.push(object)
+                break
+            case SelectionMode.remove:
+                if (includes_global)
+                    selection_global.splice(index_global, 1)
+                break
+        }
+
+        event.stopPropagation()
+    })
+
+    return selectableInfoRef.current
 }
 
-export function Selectable({ children, isolateSelections = false }: SelectableProps) {
+export function Selectable({
+        children,
+        isolateSelections = false,
+    }: SelectableComponentProps) {
     const containerRef = useRef<Object3D | null>(null)
-    useSelectionInfoRef({ containerRef, isolateSelections })
+    const props = useMemo<SelectableProps>(() => ({
+        isolateSelections,
+    }), [isolateSelections])
+    const selectable = useContainerSelectable(containerRef, props)
 
     return (
         <group ref={containerRef} name="selection-root">
-            {children}
+            {selectable && <selectableContext.Provider value={selectable}>
+                {children}
+            </selectableContext.Provider>}
         </group>
     )
+}
+
+export function useSelection<Observe extends boolean = true>(config?: {
+        observe?: Observe,
+        where?: Object3D | RefObject<Object3D | null>,
+    }): Observe extends true ? Object3D[] : ObservableList<Object3D> {
+    const { observe = true as Observe, where } = config ?? {}
+    const selectable = useLocalSelectable(where)
+    const selection = selectable?.selection ?? useSelectControlsInfo().selection
+
+    if (observe)
+        return useObservableList(selection) as ReturnType<typeof useSelection<Observe>>
+    else
+        return selection
+}
+
+export function useIsSelected(
+        object: Object3D | null | RefObject<Object3D | null>,
+        observe: ((selection: boolean) => void) | boolean = true,
+    ) {
+    const object_ = object ?
+        object instanceof Object3D ? object : useRefResolved(object) :
+        null
+
+    if (typeof observe === 'function') {
+        useEvent(object, 'onSelected', useCallback(() => observe(true), []))
+        useEvent(object, 'onDeselected', useCallback(() => observe(false), []))
+    }
+    
+    const selection = useSelection({ observe: observe === true })
+    return object_ ? selection.includes(object_) : false
 }
 
 export enum SelectionMode {
@@ -151,84 +240,6 @@ export enum SelectionMode {
     toggle = 'toggle',
     add = 'add',
     remove = 'remove',
-}
-
-export interface SelectToolProps {
-    mode: SelectionMode
-}
-
-export function SelectTool({ mode }: SelectToolProps) {
-    const selectionInfo = useSelectionInfo()
-    const scene = useThree(s => s.scene)
-
-    useObjectInteractionEvent(scene, 'onPointerMissed' as keyof InteractiveObjectEventHandlers, (e: unknown) => {
-        const event = e as Parameters<ThreeFiberEventHandlers['onPointerMissed']>[0]
-
-        if (selectionInfo.disabled)
-            return
-
-        selectionInfo.selection.splice(0, selectionInfo.selection.length)
-        event.stopPropagation()
-    })
-
-    useObjectInteractionEvent(scene, 'onClick', event => {
-        if (selectionInfo.disabled)
-            return
-
-        const {
-            object,
-        } = event
-
-        if (object instanceof Object3D) {
-            // closest selection root
-            const selectionRoots = selectionInfo.selectableRoots.filter(root => isDescendantOfOrEqual(object, root.container))
-            const selectionRoot = deepestChild(selectionRoots.map(root => root.container))
-
-            if (selectionRoot) {
-                const selection = selectionInfo.selection
-                const index = selection.indexOf(object)
-                const includes = index !== -1
-                
-                const isolatingSelectionRoot_ = isolatingSelectionRoot(selectionInfo.selectableRoots, selectionRoot)
-                const isolatedSelection = isolatingSelectionRoot_ ?
-                    selection.filter(object => !isDescendantOfOrEqual(object, isolatingSelectionRoot_)) :
-                    []
-                
-                switch (mode) {
-                    case SelectionMode.replace:
-                        for (let i = 0; i < selection.length; i++)
-                            if (i !== index && !isolatedSelection.includes(selection[i]!))
-                                selection.splice(i--, 1)
-                        
-                        if (!includes)
-                            selection.push(object)
-
-                        break
-                    case SelectionMode.toggle:
-                        // react development mode fires event twice
-                        // unhandled currently
-
-                        if (includes)
-                            selection.splice(index, 1)
-                        else
-                            selection.push(object)
-                        break
-                    case SelectionMode.add:
-                        if (!includes)
-                            selection.push(object)
-                        break
-                    case SelectionMode.remove:
-                        if (includes)
-                            selection.splice(index, 1)
-                        break
-                }
-
-                event.stopPropagation()
-            }
-        }
-    }, [selectionInfo])
-
-    return null
 }
 
 export interface SelectControlsProps {
@@ -243,11 +254,29 @@ export function SelectControls({
         }
     }: SelectControlsProps) {
     const [mode, setMode] = useState<SelectionMode>(SelectionMode.replace)
-    useRaiseSelectionEvents()
+    const controls = useSelectControlsInfo()
+    const scene = useThree(s => s.scene)
+
+    useEvent(scene, 'onPointerMissed', e => {
+        if (controls.disabled)
+            return
+
+        // separate into islands
+        const selectables = [...controls.selectables]
+        for (let i = 0; i < selectables.length; i++) {
+            const selectable = selectables[i]
+            if (selectables.some(other => isDescendantOf(selectable.container, other.container)))
+                selectables.splice(i--, 1)
+        }
+
+        for (const selectable of selectables)
+            selectable.selection.splice(0, selectable.selection.length)
+
+        e.stopPropagation()
+    })
 
     return (
         <>
-            <SelectTool mode={mode} />
             <Toolbar>
                 <Select
                     value={mode}
